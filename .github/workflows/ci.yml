@@ -44,9 +44,38 @@ jobs:
       - name: Secret hygiene
         shell: bash
         run: |
-          # No endpoint-looking URLs outside documentation examples, and no
-          # key material anywhere. Public Solana addresses are fine.
-          if grep -rInE '(api[_-]?key|BEGIN [A-Z ]*PRIVATE KEY|mnemonic)' src/ scripts/ test/ ; then
-            echo "possible secret material committed"; exit 1
+          # Look for secret VALUES, not mentions. The previous version of this
+          # check matched the guardrail regex in src/config.mjs, which exists
+          # precisely to reject secret-looking config keys — a scanner that
+          # flags its own detector is noise, and noise gets disabled.
+          fail=0
+          PATTERN="(api[_-]?key|apikey|secret|password|passphrase|private[_-]?key)[\"']?[[:space:]]*[:=][[:space:]]*[\"'][A-Za-z0-9_/+-]{12,}"
+
+          # Self-test first: a detector nobody has proven can detect is
+          # theatre. If the positive control does not trip, the scan below
+          # means nothing, so fail loudly instead of reporting a clean bill.
+          printf 'const apiKey = "sk_live_abcdefghijklmnop";\n' > /tmp/sfcli-secret-probe.txt
+          if ! grep -rIinE "$PATTERN" /tmp/sfcli-secret-probe.txt > /dev/null ; then
+            echo "::error::secret scanner failed its own positive control"; exit 1
           fi
-          echo "no secret material found"
+          rm -f /tmp/sfcli-secret-probe.txt
+          echo "scanner self-test passed"
+
+          # An assignment of a secret-ish name to a literal of real length.
+          # Case-insensitive: apiKey, API_KEY and apikey are all the same risk.
+          if grep -rIinE "$PATTERN" src/ scripts/ test/ ; then
+            echo "::error::a secret-looking literal is assigned in source"; fail=1
+          fi
+
+          # PEM key material, anywhere.
+          if grep -rInE "BEGIN [A-Z ]*PRIVATE KEY" . --exclude-dir=.git ; then
+            echo "::error::PEM private key material committed"; fail=1
+          fi
+
+          # A machine-local config must never be tracked.
+          if git ls-files --error-unmatch sfcli.config.json 2>/dev/null ; then
+            echo "::error::sfcli.config.json is tracked; it must stay gitignored"; fail=1
+          fi
+
+          [ "$fail" -eq 0 ] && echo "no secret material found"
+          exit $fail
