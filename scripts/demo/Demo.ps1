@@ -148,12 +148,19 @@ function Write-JsonFile([string]$Path, $Value) {
     $tempPath = "$Path.tmp-$PID-$([Guid]::NewGuid().ToString('N'))"
     try {
         [IO.File]::WriteAllText($tempPath, $json + [Environment]::NewLine, $Utf8NoBom)
+        # [NullString]::Value, not $null. Windows PowerShell 5.1 marshals a
+        # bare $null to a string parameter as "", and File.Replace rejects an
+        # empty backup path with "The path is not of a legal form" -- so the
+        # overwrite branch failed on every write after the first, while the
+        # create branch worked. Atomic replacement is kept deliberately: a
+        # Remove-Item plus Move would leave a window in which the destination
+        # does not exist.
         if (Test-Path -LiteralPath $Path) {
-            [IO.File]::Replace($tempPath, $Path, $null)
+            [IO.File]::Replace($tempPath, $Path, [NullString]::Value)
         }
         else {
             try { [IO.File]::Move($tempPath, $Path) }
-            catch [IO.IOException] { [IO.File]::Replace($tempPath, $Path, $null) }
+            catch [IO.IOException] { [IO.File]::Replace($tempPath, $Path, [NullString]::Value) }
         }
     }
     finally {
@@ -882,6 +889,19 @@ function Invoke-Executor {
         [IO.File]::AppendAllText($logPath, $readiness.Text + [Environment]::NewLine, $Utf8NoBom)
         [void](Assert-EmptyCycle $readiness)
 
+        # The readiness call above exercised the real signing path on an
+        # isolated empty DB and exited 0. Reaching here therefore means the
+        # pinned server already loaded the keypair and verified its format,
+        # its secret/public consistency, and its exact match to the pinned
+        # controlled wallet -- all before any RPC, execution DB, candidate
+        # scan or CAS lease. A wrong keypair exits non-zero and neither this
+        # line nor the heartbeat is ever produced. Every real execute reloads
+        # and re-verifies, so swapping the file mid-run also fails closed.
+        #
+        # Asserted by the server, reported here: this script never reads,
+        # parses or derives anything from the key file itself.
+        Write-Host "KEYPAIR_PIN_VERIFIED: $ControlledWallet" -ForegroundColor Green
+
         $deadline = [DateTimeOffset]::UtcNow.AddMinutes($ExecutorTtlMinutes)
         $heartbeat = [ordered]@{
             schemaVersion = 1
@@ -1396,6 +1416,34 @@ function Invoke-Check {
     Assert-True ($objects.Count -eq 2) "JSON object extractor returned $($objects.Count), expected two"
     Assert-True (@($objects[0].rows).Count -eq 0) 'JSON object extractor corrupted the cycle report'
     Assert-True ([bool]$objects[1].abort_remaining_cycle) 'JSON object extractor corrupted the attempt report'
+    # Atomic-write regression. The first Preflight succeeded and the second
+    # crashed because Write-JsonFile only ever took its create branch in
+    # testing; the overwrite branch passed $null as File.Replace's backup
+    # path, which Windows PowerShell 5.1 marshals to "" and .NET rejects.
+    # Writing the same path twice is the case that reproduces it, so it is
+    # the case that gets a test. Runs entirely in a temp directory.
+    $writeProbeDir = Join-Path ([IO.Path]::GetTempPath()) ("sfdemo-write-" + [Guid]::NewGuid().ToString('N'))
+    [void](New-Item -ItemType Directory -Path $writeProbeDir)
+    try {
+        $writeProbe = Join-Path $writeProbeDir 'probe.json'
+        Write-JsonFile $writeProbe ([ordered]@{ pass = 1; note = 'create branch' })
+        Assert-True (Test-Path -LiteralPath $writeProbe) 'atomic write did not create the file'
+        # Second write over an existing file: the branch that was broken.
+        Write-JsonFile $writeProbe ([ordered]@{ pass = 2; note = 'overwrite branch' })
+        $reread = Get-Content -LiteralPath $writeProbe -Raw | ConvertFrom-Json
+        Assert-Equal ([int]$reread.pass) 2 'atomic overwrite did not land the second document'
+        Assert-Equal ([string]$reread.note) 'overwrite branch' 'atomic overwrite content'
+        $leftovers = @(Get-ChildItem -LiteralPath $writeProbeDir -Filter '*.tmp-*' -Force)
+        Assert-True ($leftovers.Count -eq 0) "atomic write left $($leftovers.Count) temp file(s) behind"
+        Assert-Equal (@(Get-ChildItem -LiteralPath $writeProbeDir -Force).Count) 1 'atomic write left unexpected files in the directory'
+    }
+    finally {
+        # Precise cleanup: only this probe directory, only if it was created.
+        if (Test-Path -LiteralPath $writeProbeDir) {
+            Remove-Item -LiteralPath $writeProbeDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     # Raw-byte ASCII gate. Windows PowerShell 5.1 reads a script without a BOM
     # using the system ANSI codepage, so a UTF-8 multi-byte character is
     # decoded as two or three separate characters. In a comment that is merely
