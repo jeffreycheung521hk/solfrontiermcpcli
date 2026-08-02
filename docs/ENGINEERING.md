@@ -58,13 +58,80 @@ knows what a "quote" is.
 | Six tools against the real server | 9 integration tests, real binary, temp database | **proven** |
 | `doctor` | live run: correct GO with real chain data; NO-GO on impossible threshold | **proven** |
 | `audit` | live run against the published acceptance record: 13 claims re-derived | **proven** |
-| `flow` — preflight, propose, finalize, URL | dry-run against the real server | **proven** |
-| `flow` — signature detection + confirm | **none: dry-run only** | **UNPROVEN** |
+| `flow` — preflight, propose, finalize, URL | dry-run, plus a live mainnet run on 2026-08-02 | **proven** |
+| Exact funding proof (selection → fetch → validation) | 23 tests driving the real captured 2026-08-02 payload | **proven offline** |
+| Secrets withheld from spawned binaries; output redaction | 9 tests | **proven** |
+| `flow` — signing cutoff vs reconciliation window | written in response to the incident below; **no fake-clock tests yet** | **UNPROVEN** |
+| End-to-end orchestration (candidate → confirm → `budget_reserved` → executor lease) | **none** | **UNPROVEN** |
 
-The last row is the honest gap. Every component of the real funding path is
-tested; their integration under a live 180-second deadline is not. It cannot
-be tested without spending real money, which is a limit of the situation, not
-an excuse — it is stated here rather than left for a reader to discover.
+The last two rows are the honest gaps, stated here rather than left for a
+reader to find out. The first is new code written after a real loss and has
+not been tested against a controlled clock. The second has never been
+exercised as a whole; the intended way to close it is a hermetic regression
+with a fake RPC and fake server, **not** another live run.
+
+## Incident, 2026-08-02: 0.2 USDC transferred and not recorded
+
+The `flow` funding path was exercised on mainnet for the first time. It
+failed, and the failure is worth more than the success would have been.
+
+**What happened.** The user's payment was correct and on time: memo exact,
+amount exact, the registered payer as signer, finalized at 13:29:34Z against
+a 13:32:13Z deadline — 159 seconds inside the window. The client counted down
+to zero and reported that no funding transaction had appeared. The money had
+left the wallet; the database still said `funding_required`.
+
+**Root cause, in two parts.** Detection accepted "any successful signature on
+the destination ATA after the baseline" without fetching the transaction or
+checking anything about it. Separately, a prefilter compared
+`getSignaturesForAddress`'s `memo` field for exact equality — but that field
+is a *summary*, formatted `"[byte_len] memo"`, with multiple memos joined by
+`"; "`. The one correct transaction failed that comparison, was added to a
+seen-signature blacklist, and was never passed to the verifier for the
+remaining 159 seconds.
+
+**Why the tests did not catch it.** Fifteen regressions existed for the
+memo comparison. All of them handed a transaction straight to the validator,
+but the defect lived one layer earlier, in selection. A reintroduced prefilter
+would have left every one of them green. A test written for a bug that cannot
+reproduce that bug is worse than no test: it advertises cover that is not
+there.
+
+**What changed.** Verification moved into `src/solana/funding-proof.mjs` and
+`flow` now uses it. Selection is pure and blind to memo content; it may
+exclude only a failed transaction, one present before the run, or one already
+judged. Validation reads the instructions — exactly one outer Memo equal to
+this run's, exactly one `transferChecked` with every field pinned, and both
+token accounts moved by exactly the amount, bound by `accountIndex` from the
+transaction's own `accountKeys` rather than by owner+mint first match. The
+regressions now drive the real captured payload, prefix and all, through
+selection, fetch and validation.
+
+Two deadlines were also separated. The **signing cutoff** is the funding
+deadline: past it nothing new may be approved. The **reconciliation window**
+keeps searching for a further 90 seconds, because a payment can be on chain
+and on time while the RPC is slow to list it, and stopping at the cutoff is
+exactly how funds get transferred with nothing recorded.
+
+**Disposition of the funds.** Two amounts of 0.2 USDC now sit in the
+controlled ATA and cannot be executed, both because their funding deadline
+passed before a lease could be taken:
+
+| Intent | Cause | Status |
+|---|---|---|
+| `5b000000…` (2026-08-01) | executor started 107 s after the deadline | written off |
+| `58000000…` (2026-08-02) | this incident; later confirmed to `budget_reserved` | written off |
+
+The second was reconciled by a single authorised `confirm_funding` call, so
+the chain and the database now agree: `budget_reserved (expired,
+unexecutable, manual reconciliation required)`. The owner has elected to
+write both off rather than pursue recovery.
+
+**This closes no debt.** `DEBT-P2-FUNDING-1` in the server repository stands
+unchanged: there is still no refund handler, no complete auditable manual
+procedure, and no pagination or row-level isolation in the bounded scans.
+Writing off specific funds is not the same as fixing the reason they were
+strandable, and refund logic does not belong in a demo harness.
 
 An independent cross-check that did land: `propose --amount 0.2
 --threshold-bps 90` reproduces draft hash
@@ -148,9 +215,22 @@ Recorded because each is a category, not an accident.
 - No packaging. There is no single-file executable and nothing is published
   to npm; it runs from source with Node ≥ 20.
 
-## Planned first real-money demonstration
+## First real-money demonstration — CONSUMED, do not rerun
 
-Recorded before it runs, so the plan is auditable regardless of outcome.
+Recorded before it ran, and left unedited afterwards so the plan can be read
+against the outcome. **It ran on 2026-08-02 and failed**; see the incident
+above. Everything it pins is now spent:
+
+- the intent `58000000400d0300000000009a62dace` is consumed and its funding
+  is stranded;
+- the database `scratch/demo-20260802-run.db` and the run directory
+  `scratch/demo-live-20260802/` hold that run's evidence and must be kept;
+- `scripts/demo/Demo.ps1` pins a CLI source tree that this repository has
+  since moved past, so its runtime pin will correctly refuse to run.
+
+Any future attempt needs a fresh threshold and intent, a virgin database, a
+new run directory, and a re-review of every pin. The original plan follows,
+unchanged.
 
 - **Amount** 0.2 USDC. **Threshold** 88 bps — deliberately not 90 or 91,
   both consumed on 2026-08-01. `intent_id` is deterministic from

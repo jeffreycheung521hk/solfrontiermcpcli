@@ -168,9 +168,13 @@ green.
 
 [`docs/ENGINEERING.md`](docs/ENGINEERING.md) is the engineering record: the
 architecture, the design decisions and their reasons, and — most usefully — a
-table of **what is proven versus what is not**. The one unproven area is
-stated there rather than left for a reader to find out: `flow`'s real funding
-path has component-level tests but no end-to-end run under a live deadline.
+table of **what is proven versus what is not**, and an incident record for
+2026-08-02, when `flow`'s funding detection missed a correct, on-time payment
+and 0.2 USDC was transferred without being recorded. The root cause, the fix,
+and the reason the existing tests could not have caught it are written up
+there. Two areas remain unproven and are named as such: the new
+cutoff-versus-reconciliation logic has no fake-clock tests yet, and the
+end-to-end orchestration has never been exercised as a whole.
 
 ## Licence
 

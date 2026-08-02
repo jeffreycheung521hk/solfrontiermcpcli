@@ -1,5 +1,21 @@
 # Solfrontier CLI mainnet demo（PowerShell 5.1）
 
+> ## HISTORICAL — CONSUMED — DO NOT RERUN
+>
+> 這份 runbook 已於 **2026-08-02 執行並失敗**,0.2 USDC 轉出但未被記錄。
+> 根因與修正見 [`docs/ENGINEERING.md`](../../docs/ENGINEERING.md) 的
+> incident 章節。它所釘住的一切都已消耗:
+>
+> - intent `58000000400d0300000000009a62dace` 已用掉,資金已擱淺並沖銷;
+> - DB `scratch/demo-20260802-run.db` 與 RunDir `scratch/demo-live-20260802/`
+>   是該次的證據,必須保留、不得覆寫;
+> - `Demo.ps1` 釘的 CLI source tree 已被 repo 超越,其 runtime pin 會正確拒絕執行。
+>
+> 保留此文件是為了讓計劃能與結果對照,不是為了再跑一次。任何新的 live
+> 嘗試都需要**全新的 threshold 與 intent、乾淨的 DB、新的 RunDir**,並重新
+> 審核每一個 pin。修正後的 funding 驗證已移入 `src/solana/funding-proof.mjs`,
+> 由產品的 `flow` 命令使用;退款邏輯不屬於這裡。
+
 這套 demo 使用一支 `Demo.ps1`，將路徑、金額、threshold、intent 與兩個錢包全部固定。它不修改 CLI／server 原始碼，也不採用預設 config 的 `scratch/dev.db`；每個 client 與 executor call 都顯式使用同一個 live DB：
 
 - DB：`C:\Users\jeffr\solfrontiermcpcli\scratch\demo-20260802-run.db`
