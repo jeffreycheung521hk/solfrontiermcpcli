@@ -63,7 +63,14 @@ $ControlledUsdcAta = '7LFdKcSV7JQYi3or5y9phHVPjhGigu5DDjUakAFbBmk3'
 $UsdcMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 $SolendProgram = 'So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo'
 $MainnetGenesisHash = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'
-$ExpectedCliHead = '421aac6b82000be7e74f44d107c90bba5ae8ec4d'
+# CLI is pinned by the runtime objects it actually executes, not by HEAD.
+# Pinning HEAD is self-defeating here: committing this harness changes HEAD,
+# so the pin could never be satisfied by a committed copy of itself. These
+# two objects are what the demo actually runs; they are unchanged by any
+# commit that only adds tooling, and any edit to src/ or package.json moves
+# them. HEAD is still recorded as provenance, it is just not a gate.
+$ExpectedCliSrcTree = 'eaa9447c2050e9266db8eb487baf60b42512c025'
+$ExpectedCliPackageBlob = 'a072245bfce5f95a1aff82537a001151031dc47e'
 $ExpectedServerHead = 'e27ce3de129a62e1de69ccaf5b2b7d44fab4d52d'
 $ExpectedBinarySha256 = '610117761832FCB7336D47E192BA5558439BE89CCABA1F2D1C6CD0CC3333EA80'
 $ExpectedSigningPageSha256 = '500FFBD866B230AF09E998A64EE3B1C90721A67BC7BA1B6690D38E2CDEA25F4A'
@@ -325,6 +332,57 @@ function Assert-RepoPinned([string]$Root, [string]$ExpectedHead, [string]$Label)
     if ($diffCode -ne 0) { Stop-Demo "$Label has tracked working-tree changes" }
     if ($cachedCode -ne 0) { Stop-Demo "$Label has staged changes" }
     return $head
+}
+
+function Assert-CliRuntimePinned([string]$Root) {
+    $safe = "safe.directory=$($Root.Replace('\','/'))"
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $head = (& git.exe -c $safe -C $Root rev-parse HEAD 2>$null)
+        $headCode = $LASTEXITCODE
+        $srcTree = (& git.exe -c $safe -C $Root rev-parse 'HEAD:src' 2>$null)
+        $srcCode = $LASTEXITCODE
+        $packageBlob = (& git.exe -c $safe -C $Root rev-parse 'HEAD:package.json' 2>$null)
+        $packageCode = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $previousPreference }
+    if ($headCode -ne 0) { Stop-Demo 'cannot read CLI repo git HEAD' }
+    if ($srcCode -ne 0) { Stop-Demo 'cannot read CLI repo HEAD:src tree object' }
+    if ($packageCode -ne 0) { Stop-Demo 'cannot read CLI repo HEAD:package.json blob object' }
+
+    # The gate: the executed runtime, not the commit that carries it.
+    Assert-Equal ([string]$srcTree).Trim() $ExpectedCliSrcTree 'CLI repo HEAD:src tree'
+    Assert-Equal ([string]$packageBlob).Trim() $ExpectedCliPackageBlob 'CLI repo HEAD:package.json blob'
+
+    # A committed tree proves nothing if the checkout is dirty, so the whole
+    # repository must still be clean in both the working tree and the index.
+    try {
+        $ErrorActionPreference = 'Continue'
+        & git.exe -c $safe -C $Root diff --quiet
+        $diffCode = $LASTEXITCODE
+        & git.exe -c $safe -C $Root diff --cached --quiet
+        $cachedCode = $LASTEXITCODE
+        $untracked = @(& git.exe -c $safe -C $Root ls-files --others --exclude-standard -- src package.json 2>$null)
+        $untrackedCode = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $previousPreference }
+    if ($diffCode -ne 0) { Stop-Demo 'CLI repo has tracked working-tree changes' }
+    if ($cachedCode -ne 0) { Stop-Demo 'CLI repo has staged changes' }
+    if ($untrackedCode -ne 0) { Stop-Demo 'cannot enumerate CLI repo untracked runtime files' }
+
+    # Untracked files under src/ are invisible to the tree pin but are loaded
+    # at runtime by any import that resolves to them.
+    $untracked = @($untracked | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($untracked.Count -gt 0) {
+        Stop-Demo "CLI repo has untracked runtime file(s) the tree pin cannot cover: $($untracked -join ', ')"
+    }
+
+    return [pscustomobject]@{
+        head = ([string]$head).Trim()
+        srcTree = ([string]$srcTree).Trim()
+        packageBlob = ([string]$packageBlob).Trim()
+    }
 }
 
 function Assert-TokenAccount([string]$Address, [string]$ExpectedOwner, [long]$MinimumRaw, [string]$Label) {
@@ -646,7 +704,7 @@ function Invoke-Preflight {
     }
     Assert-True (-not $Db.ToLowerInvariant().Contains('acceptance')) 'acceptance DB paths are forbidden'
     $nodeVersion = Assert-NodeVersion
-    $cliHead = Assert-RepoPinned $CliRoot $ExpectedCliHead 'CLI repo'
+    $cliRuntime = Assert-CliRuntimePinned $CliRoot
     $serverHead = Assert-RepoPinned $ServerRoot $ExpectedServerHead 'server repo'
     $binaryHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Binary).Hash
     Assert-Equal $binaryHash $ExpectedBinarySha256 'release binary SHA256'
@@ -692,7 +750,7 @@ function Invoke-Preflight {
         rpcFingerprint = Get-RpcFingerprint
         rpc = $rpc
         balances = @{ userUsdcRaw = [string]$userUsdc; controlledUsdcRaw = [string]$controlledUsdc; userSolLamports = [string]$userSol; controlledSolLamports = [string]$controlledSol }
-        source = @{ nodeVersion = $nodeVersion; cliHead = $cliHead; serverHead = $serverHead; binarySha256 = $binaryHash; signingPageSha256 = $pageHash; signingGuardSha256 = $guardHash; demoConfigSha256 = $configHash }
+        source = @{ nodeVersion = $nodeVersion; cliHead = $cliRuntime.head; cliSrcTree = $cliRuntime.srcTree; cliPackageBlob = $cliRuntime.packageBlob; serverHead = $serverHead; binarySha256 = $binaryHash; signingPageSha256 = $pageHash; signingGuardSha256 = $guardHash; demoConfigSha256 = $configHash }
         reserve = $doctor.reserve
         cycleSummary = $cycle.summary
     }
@@ -951,7 +1009,7 @@ function Invoke-Live {
     # Proposal is pure. Re-check positive executor readiness immediately before
     # the one-shot marker and finalize DB write.
     [void](Assert-Heartbeat)
-    [void](Assert-RepoPinned $CliRoot $ExpectedCliHead 'CLI repo')
+    [void](Assert-CliRuntimePinned $CliRoot)
     [void](Assert-RepoPinned $ServerRoot $ExpectedServerHead 'server repo')
     Assert-Equal (Get-FileHash -Algorithm SHA256 -LiteralPath $Binary).Hash $ExpectedBinarySha256 'pre-finalize release binary SHA256'
     [void](Assert-SigningPage)
@@ -1242,7 +1300,7 @@ function Invoke-Check {
     Assert-File $SigningGuardSource 'signing guard'
     Assert-File $DemoConfig 'demo config'
     [void](Assert-NodeVersion)
-    [void](Assert-RepoPinned $CliRoot $ExpectedCliHead 'CLI repo')
+    [void](Assert-CliRuntimePinned $CliRoot)
     [void](Assert-RepoPinned $ServerRoot $ExpectedServerHead 'server repo')
     Assert-Equal (Get-FileHash -Algorithm SHA256 -LiteralPath $Binary).Hash $ExpectedBinarySha256 'release binary SHA256'
     Assert-Equal (Get-FileHash -Algorithm SHA256 -LiteralPath $SigningPageSource).Hash $ExpectedSigningPageSha256 'base signing page SHA256'

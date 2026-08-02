@@ -27,7 +27,26 @@ Server 的 `confirm_funding` 仍會重新驗證鏈上證據；PowerShell 只負�
 - Window B（executor）：相同 RPC；另設 `SOLFRONTIER_CONTROLLED_WALLET_KEYPAIR`。
 - Hardened signing page 由 `Serve` mode 在背景啟動，只 bind `127.0.0.1:8081`，不持有任何 key。
 
-腳本與三個配套檔目前設計為 local demo tooling。若日後 commit 它們，需更新／重審 source pins；不要只改 expected HEAD 來令檢查變綠。
+## Source pins：CLI runtime objects + pinned server commit
+
+CLI 端**不再以 HEAD 作 GO/NO-GO 判準**。原本 `$ExpectedCliHead` 是自我指涉的：
+commit 這支 harness 本身就會改變 HEAD，因此已 commit 的版本永遠無法滿足自己的
+pin。改為釘住 demo 實際執行的 runtime objects：
+
+- `$ExpectedCliSrcTree`：`git rev-parse HEAD:src`
+- `$ExpectedCliPackageBlob`：`git rev-parse HEAD:package.json`
+
+只增加 tooling 的 commit 不會動到這兩個 object；任何 `src/` 或 `package.json` 的
+改動都會令它們改變。除了 object 相符之外，pin 仍要求整個 repo 的 tracked
+working-tree 與 index 乾淨，並拒絕 `src/` 內的 untracked runtime file——那些檔案
+tree pin 看不見，但 import 解析得到。
+
+HEAD 仍然記錄在 preflight provenance（連同 src tree 與 package blob），只是不再
+是閘門。Server 端維持 `$ExpectedServerHead` commit pin：收官 repo 不會再變，沒有
+不動點問題。
+
+日後若再修改 `src/`，需更新並**重審**這兩個 object pin；不要只把數值換成新的來令
+檢查變綠。
 
 ## 0. Offline self-check
 
@@ -38,7 +57,7 @@ Set-Location C:\Users\jeffr\solfrontiermcpcli
 .\scripts\demo\Demo.ps1 -Mode Check
 ```
 
-這一步不碰 RPC、DB 或資金；它檢查 PowerShell parser、Node 20+、JS syntax、known-good commits、binary/page/guard/config hashes，以及 watcher multi-JSON parser。
+這一步不碰 RPC、DB 或資金；它檢查 PowerShell parser、Node 20+、JS syntax、known-good CLI runtime objects（`HEAD:src` tree 與 `HEAD:package.json` blob）＋ pinned server commit、binary/page/guard/config hashes，以及 watcher multi-JSON parser。
 
 ## 1. 啟動 hardened signing page
 
@@ -64,7 +83,7 @@ Serve 由 pinned base page 產生一份 demo-only copy，再注入 hash-pinned `
 .\scripts\demo\Demo.ps1 -Mode Preflight
 ```
 
-Preflight 要求：known-good commits／binary／page／guard／config、mainnet genesis、host clock、exact ATA balances、兩端 SOL fee、strict doctor（reserve 必須 fresh 且 APY > 88）、zero actionable DB rows、intent `not_found`，以及鏈上從未出現該 intent memo prefix。任何舊 live marker／result／lock／heartbeat 都會 NO-GO。
+Preflight 要求：known-good CLI runtime objects＋pinned server commit／binary／page／guard／config、mainnet genesis、host clock、exact ATA balances、兩端 SOL fee、strict doctor（reserve 必須 fresh 且 APY > 88）、zero actionable DB rows、intent `not_found`，以及鏈上從未出現該 intent memo prefix。任何舊 live marker／result／lock／heartbeat 都會 NO-GO。
 
 ## 3. 先啟 Executor（Window B）
 
