@@ -66,6 +66,10 @@ $UsdcMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 # multiple memos with "; ".
 $MemoProgramId = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'
 $TokenProgramId = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+# Captured mainnet payload of the 2026-08-02 funding transaction, replayed
+# offline by Check so the selection path is regression-tested against the
+# exact conditions that stranded 0.2 USDC.
+$FundingReplayFixture = Join-Path $PSScriptRoot 'fixtures\funding-20260802.json'
 $SolendProgram = 'So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo'
 # The full 44-character base58 genesis hash that getGenesisHash returns.
 # Not to be confused with the 32-character CAIP-2 short chain identifier
@@ -439,18 +443,43 @@ function Get-Transaction([string]$Signature, [string]$Commitment = 'confirmed') 
     })
 }
 
-# Balance delta for one owner+mint pair, from the parsed pre/post rows.
-function Get-OwnerTokenDelta($Transaction, [string]$Owner, [string]$Mint) {
+# Balance delta for one EXACT token account, bound by accountIndex.
+#
+# Matching on owner+mint and taking the first hit is not sufficient: a wallet
+# may hold several token accounts for the same mint, so "first row for this
+# owner" can silently be a different account. The transaction's own
+# accountKeys give the authoritative index for the pinned ATA, and the
+# balance rows are keyed by that index -- which is how the server binds it.
+#
+# Missing-row rules are explicit. A missing PRE row means the account was
+# created inside this transaction, so its prior balance is zero. A missing
+# POST row means the transaction proves nothing about the final balance, and
+# is therefore fatal rather than treated as zero.
+function Get-AtaTokenDelta($Transaction, [string]$Ata, [string]$ExpectedOwner, [string]$Mint) {
+    $keys = @($Transaction.transaction.message.accountKeys)
+    $index = -1
+    for ($i = 0; $i -lt $keys.Count; $i++) {
+        if ([string]$keys[$i].pubkey -ceq $Ata) { $index = $i; break }
+    }
+    if ($index -lt 0) { return $null }
+
     $preRow = @($Transaction.meta.preTokenBalances | Where-Object {
-        [string]$_.owner -eq $Owner -and [string]$_.mint -eq $Mint
+        [int]$_.accountIndex -eq $index -and [string]$_.mint -ceq $Mint
     }) | Select-Object -First 1
     $postRow = @($Transaction.meta.postTokenBalances | Where-Object {
-        [string]$_.owner -eq $Owner -and [string]$_.mint -eq $Mint
+        [int]$_.accountIndex -eq $index -and [string]$_.mint -ceq $Mint
     }) | Select-Object -First 1
-    if ($null -eq $postRow -and $null -eq $preRow) { return $null }
+    if ($null -eq $postRow) { return $null }
+
+    foreach ($row in @($preRow, $postRow)) {
+        if ($null -eq $row) { continue }
+        if ([string]$row.owner -cne $ExpectedOwner) { return $null }
+        if ([int]$row.uiTokenAmount.decimals -ne 6) { return $null }
+    }
+
     $pre = if ($null -eq $preRow) { [long]0 } else { [long]$preRow.uiTokenAmount.amount }
-    $post = if ($null -eq $postRow) { [long]0 } else { [long]$postRow.uiTokenAmount.amount }
-    return [pscustomobject]@{ Pre = $pre; Post = $post; Delta = $post - $pre }
+    $post = [long]$postRow.uiTokenAmount.amount
+    return [pscustomobject]@{ AccountIndex = $index; Pre = $pre; Post = $post; Delta = $post - $pre }
 }
 
 # Every outer (top-level) Memo instruction's exact text, taken from the
@@ -505,9 +534,9 @@ function Test-FundingTransaction($Transaction, [string]$ExpectedMemo) {
     if ([string]$info.tokenAmount.amount -cne [string]$AmountRaw) { return $null }
     if ([int]$info.tokenAmount.decimals -ne 6) { return $null }
 
-    # 4. Both sides of the ledger moved by exactly the pinned amount.
-    $controlled = Get-OwnerTokenDelta $Transaction $ControlledWallet $UsdcMint
-    $user = Get-OwnerTokenDelta $Transaction $UserWallet $UsdcMint
+    # 4. Both pinned token accounts moved by exactly the pinned amount.
+    $controlled = Get-AtaTokenDelta $Transaction $ControlledUsdcAta $ControlledWallet $UsdcMint
+    $user = Get-AtaTokenDelta $Transaction $UserUsdcAta $UserWallet $UsdcMint
     if ($null -eq $controlled -or $null -eq $user) { return $null }
     if ($controlled.Delta -ne [long]$AmountRaw) { return $null }
     if ($user.Delta -ne -[long]$AmountRaw) { return $null }
@@ -520,6 +549,51 @@ function Test-FundingTransaction($Transaction, [string]$ExpectedMemo) {
         UserDelta = $user.Delta
         Memo = [string]$memos[0]
     }
+}
+
+# Which signature rows deserve a getTransaction call. PURE, and deliberately
+# ignorant of memo content.
+#
+# This is the layer where 0.2 USDC was lost on 2026-08-02: a memo prefilter
+# lived here and rejected the one correct transaction before the validator
+# ever saw it. Selection may only exclude what is provably irrelevant -- a
+# failed transaction, one present before this run began, or one already
+# judged. Everything else is fetched and verified. Extracted so that a
+# regression can drive selection with a real signature row rather than
+# handing a transaction straight to the validator, which would leave this
+# layer untested.
+function Select-FundingCandidateSignatures($Rows, $BaselineSignatures, $SeenSignatures) {
+    $selected = @()
+    foreach ($row in @($Rows)) {
+        if ($null -ne $row.err) { continue }
+        $signature = [string]$row.signature
+        if ([string]::IsNullOrWhiteSpace($signature)) { continue }
+        if ($null -ne $BaselineSignatures -and $BaselineSignatures.ContainsKey($signature)) { continue }
+        if ($null -ne $SeenSignatures -and $SeenSignatures.ContainsKey($signature)) { continue }
+        $selected += ,$signature
+    }
+    return @($selected)
+}
+
+# One pass of the funding search. $GetTransaction is a scriptblock taking a
+# signature and returning a transaction, so the whole path -- selection,
+# fetch, validation -- can be driven offline from captured payloads.
+# Signatures that fetch but fail validation are recorded in $SeenSignatures
+# so they are not re-fetched; selection itself never blacklists anything.
+function Find-ExactFundingMatches($Rows, [string]$ExpectedMemo, $BaselineSignatures, $SeenSignatures, [scriptblock]$GetTransaction) {
+    $matches = @()
+    foreach ($signature in Select-FundingCandidateSignatures $Rows $BaselineSignatures $SeenSignatures) {
+        $tx = & $GetTransaction $signature
+        if ($null -eq $tx) { continue }   # not yet visible; retry next pass
+        $proof = Test-FundingTransaction $tx $ExpectedMemo
+        if ($null -ne $proof) {
+            $matches += ,([pscustomobject]@{ Signature = $signature; Proof = $proof })
+        }
+        elseif ($null -ne $SeenSignatures) {
+            $SeenSignatures[$signature] = $true
+        }
+    }
+    return @($matches)
 }
 
 function Test-ExecutionTransaction($Transaction) {
@@ -1249,32 +1323,14 @@ function Invoke-Live {
         }
         try {
             $rows = @(Get-SignatureRows $ControlledUsdcAta 100)
-            $matches = @()
-            foreach ($row in $rows) {
-                if ($null -ne $row.err) { continue }
-                $signature = [string]$row.signature
-                if ($baselineSignatures.ContainsKey($signature) -or $seenSignatures.ContainsKey($signature)) { continue }
-                # No memo prefilter here, deliberately. getSignaturesForAddress
-                # does not return the raw memo: the RPC formats it as
-                # "[byte_len] memo" and joins multiple memos with "; ". An
-                # exact-equality prefilter on that field rejected the one
-                # correct, on-time funding transaction of the 2026-08-02 run
-                # and blacklisted it for the rest of the window, so the real
-                # verifier below was never reached and 0.2 USDC was stranded.
-                # EndsWith would not be a correct gate either, since a
-                # transaction carrying an unrelated memo followed by ours
-                # would pass it. Every non-baseline candidate now goes to
-                # Test-FundingTransaction, which reads the instruction itself.
-                $tx = Get-Transaction $signature 'confirmed'
-                if ($null -eq $tx) { continue }
-                $proof = Test-FundingTransaction $tx $memo
-                if ($null -ne $proof) {
-                    $matches += ,([pscustomobject]@{ Signature = $signature; Proof = $proof })
-                }
-                else {
-                    $seenSignatures[$signature] = $true
-                }
-            }
+            # Selection, fetch and validation all live in Find-ExactFundingMatches
+            # so the identical code path is exercised offline against the
+            # captured 2026-08-02 payload. No memo prefilter exists here by
+            # design; see Select-FundingCandidateSignatures.
+            $matches = @(Find-ExactFundingMatches $rows $memo $baselineSignatures $seenSignatures {
+                param($signature)
+                Get-Transaction $signature 'confirmed'
+            })
         }
         catch {
             Write-Host "`ntransient RPC read while looking for the exact funding transaction; retrying: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -1575,6 +1631,67 @@ function Invoke-Check {
     $failed = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
     $failed.meta.err = [pscustomobject]@{ InstructionError = @(0, 'Custom') }
     Assert-True ($null -eq (Test-FundingTransaction $failed $goodMemo)) 'funding proof accepted a failed transaction'
+
+    # Deterministic replay of the real 2026-08-02 funding transaction.
+    #
+    # The synthetic cases above test the validator. They cannot catch the bug
+    # that actually cost money, because that bug lived in SELECTION: a memo
+    # prefilter rejected the transaction before the validator ran. This block
+    # drives the real signature row -- carrying the genuine "[106] ..." memo
+    # summary -- through selection, fetch and validation, using the captured
+    # mainnet payload and a fake fetcher. Reintroduce a memo prefilter and
+    # this fails; the synthetic cases alone would stay green.
+    Assert-File $FundingReplayFixture 'captured 2026-08-02 funding fixture'
+    $fixture = Get-Content -LiteralPath $FundingReplayFixture -Raw | ConvertFrom-Json
+    $replaySig = [string]$fixture.signature
+    $replayMemo = 'claw:w5h:58000000400d0300000000009a62dace:711e70b5cb235df2b16c494ab8a21bb0c22bfce27a885b08ad41845c81368d10'
+
+    # The fixture must still carry the RPC's length-prefixed summary, or this
+    # regression has quietly stopped reproducing the original conditions.
+    Assert-True ([string]$fixture.row.memo -eq "[$($replayMemo.Length)] $replayMemo") 'replay fixture memo summary is not the length-prefixed RPC form'
+    Assert-True ([string]$fixture.row.memo -ne $replayMemo) 'replay fixture memo summary must differ from the raw memo'
+
+    $fetched = @{}
+    $fakeFetch = {
+        param($signature)
+        $fetched[$signature] = $true
+        if ($signature -eq $replaySig) { return $fixture.transaction }
+        return $null
+    }
+
+    # Full path: selection -> fetch -> validation.
+    $replaySeen = @{}
+    $replayMatches = @(Find-ExactFundingMatches @($fixture.row) $replayMemo @{} $replaySeen $fakeFetch)
+    Assert-True ($fetched.ContainsKey($replaySig)) 'replay: the real signature was never fetched (selection dropped it)'
+    Assert-Equal $replayMatches.Count 1 'replay: the real funding transaction did not produce exactly one match'
+    Assert-Equal ([string]$replayMatches[0].Signature) $replaySig 'replay: matched signature'
+    Assert-Equal ([long]$replayMatches[0].Proof.Delta) ([long]$AmountRaw) 'replay: controlled ATA delta'
+    Assert-Equal ([long]$replayMatches[0].Proof.UserDelta) (-[long]$AmountRaw) 'replay: user ATA delta'
+    Assert-True ($replaySeen.Count -eq 0) 'replay: a valid transaction was blacklisted'
+
+    # Selection must be blind to memo content, and must honour only the three
+    # legitimate exclusions.
+    $selAll = @(Select-FundingCandidateSignatures @($fixture.row) @{} @{})
+    Assert-Equal $selAll.Count 1 'selection dropped a valid candidate row'
+    $selBaseline = @(Select-FundingCandidateSignatures @($fixture.row) @{ $replaySig = $true } @{})
+    Assert-Equal $selBaseline.Count 0 'selection did not honour the baseline'
+    $selSeen = @(Select-FundingCandidateSignatures @($fixture.row) @{} @{ $replaySig = $true })
+    Assert-Equal $selSeen.Count 0 'selection did not honour the seen set'
+    $errRow = [pscustomobject]@{ signature = $replaySig; memo = $fixture.row.memo; err = [pscustomobject]@{ x = 1 } }
+    Assert-Equal (@(Select-FundingCandidateSignatures @($errRow) @{} @{}).Count) 0 'selection kept a failed transaction'
+
+    # A row whose transaction is not yet visible must be retried, not burned.
+    $pendingSeen = @{}
+    $pendingRow = [pscustomobject]@{ signature = 'PendingSignatureNotYetVisible'; memo = $null; err = $null }
+    [void](Find-ExactFundingMatches @($pendingRow) $replayMemo @{} $pendingSeen $fakeFetch)
+    Assert-True ($pendingSeen.Count -eq 0) 'an unfetchable signature was blacklisted instead of retried'
+
+    # The real transaction judged against a different run's memo must fail,
+    # and that failure is what legitimately blacklists a signature.
+    $otherSeen = @{}
+    $otherMemo = 'claw:w5h:5a000000400d0300000000009a62dace:' + ('c' * 64)
+    Assert-Equal (@(Find-ExactFundingMatches @($fixture.row) $otherMemo @{} $otherSeen $fakeFetch).Count) 0 'replay matched a foreign memo'
+    Assert-True ($otherSeen.ContainsKey($replaySig)) 'a fetched non-matching signature was not recorded as seen'
 
     # Atomic-write regression. The first Preflight succeeded and the second
     # crashed because Write-JsonFile only ever took its create branch in
