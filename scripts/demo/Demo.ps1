@@ -1563,23 +1563,30 @@ function Invoke-Check {
                 }
             }
         })
+        # Shaped like the captured mainnet payload: the ATAs appear in
+        # accountKeys and the balance rows are keyed by accountIndex, because
+        # that is how the proof binds them.
         [pscustomobject]@{
             slot = 1
             meta = [pscustomobject]@{
                 err = $null
                 logMessages = @('Program MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr invoke [1]')
                 preTokenBalances = @(
-                    [pscustomobject]@{ owner = $UserWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = '1000000' } },
-                    [pscustomobject]@{ owner = $ControlledWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = '0' } }
+                    [pscustomobject]@{ accountIndex = 1; owner = $UserWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = '1000000'; decimals = 6 } },
+                    [pscustomobject]@{ accountIndex = 2; owner = $ControlledWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = '0'; decimals = 6 } }
                 )
                 postTokenBalances = @(
-                    [pscustomobject]@{ owner = $UserWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = [string](1000000 + $userDelta) } },
-                    [pscustomobject]@{ owner = $ControlledWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = [string]$ctlDelta } }
+                    [pscustomobject]@{ accountIndex = 1; owner = $UserWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = [string](1000000 + $userDelta); decimals = 6 } },
+                    [pscustomobject]@{ accountIndex = 2; owner = $ControlledWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = [string]$ctlDelta; decimals = 6 } }
                 )
             }
             transaction = [pscustomobject]@{
                 message = [pscustomobject]@{
-                    accountKeys = @([pscustomobject]@{ pubkey = $UserWallet; signer = $userSigns })
+                    accountKeys = @(
+                        [pscustomobject]@{ pubkey = $UserWallet; signer = $userSigns },
+                        [pscustomobject]@{ pubkey = $UserUsdcAta; signer = $false },
+                        [pscustomobject]@{ pubkey = $ControlledUsdcAta; signer = $false }
+                    )
                     instructions = $instructions
                 }
             }
@@ -1616,6 +1623,33 @@ function Invoke-Check {
     # A longer memo that merely contains ours is not ours.
     $superset = & $mkFunding @($goodMemo + ':extra') $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
     Assert-True ($null -eq (Test-FundingTransaction $superset $goodMemo)) 'funding proof accepted a superset memo'
+
+    # A second token account for the same owner and mint. Matching on
+    # owner+mint and taking the first row would read this decoy's numbers
+    # instead of the pinned ATA's; binding by accountIndex does not.
+    $decoy = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    $decoy.transaction.message.accountKeys = @($decoy.transaction.message.accountKeys) + ,([pscustomobject]@{ pubkey = 'DecoyAta1111111111111111111111111111111111'; signer = $false })
+    $decoyPre = [pscustomobject]@{ accountIndex = 3; owner = $ControlledWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = '999'; decimals = 6 } }
+    $decoyPost = [pscustomobject]@{ accountIndex = 3; owner = $ControlledWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = '999'; decimals = 6 } }
+    # Placed FIRST, so a first-match implementation reads the decoy.
+    $decoy.meta.preTokenBalances = @($decoyPre) + @($decoy.meta.preTokenBalances)
+    $decoy.meta.postTokenBalances = @($decoyPost) + @($decoy.meta.postTokenBalances)
+    Assert-True ($null -ne (Test-FundingTransaction $decoy $goodMemo)) 'a decoy token account for the same owner defeated the ATA binding'
+
+    # Balance rows must carry the pinned decimals.
+    $wrongDecimals = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    $wrongDecimals.meta.postTokenBalances[1].uiTokenAmount.decimals = 9
+    Assert-True ($null -eq (Test-FundingTransaction $wrongDecimals $goodMemo)) 'funding proof accepted a balance row with wrong decimals'
+
+    # A missing POST row proves nothing and must be fatal, not read as zero.
+    $noPost = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    $noPost.meta.postTokenBalances = @($noPost.meta.postTokenBalances | Where-Object { [int]$_.accountIndex -ne 2 })
+    Assert-True ($null -eq (Test-FundingTransaction $noPost $goodMemo)) 'funding proof accepted a missing post-balance row'
+
+    # A missing PRE row means the ATA was created in this transaction.
+    $noPre = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    $noPre.meta.preTokenBalances = @($noPre.meta.preTokenBalances | Where-Object { [int]$_.accountIndex -ne 2 })
+    Assert-True ($null -ne (Test-FundingTransaction $noPre $goodMemo)) 'funding proof rejected a legitimately newly created destination ATA'
 
     # Amount, routing, authority and signer are each independently fatal.
     $wrongAmount = & $mkFunding @($goodMemo) 199999 $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-199999) 199999
