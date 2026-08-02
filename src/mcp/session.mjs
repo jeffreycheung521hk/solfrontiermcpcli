@@ -23,6 +23,52 @@ import { LineFramer } from './framing.mjs';
 
 const STDERR_RING_LINES = 40;
 
+// Environment variables that must never reach a spawned MCP server.
+//
+// `--bin` can point at any executable. Handing it the whole parent
+// environment would give an arbitrary binary the path to the controlled
+// wallet's keypair, which this client has no business passing on: it never
+// signs, and the server it legitimately drives reads that variable only in
+// the executor path this client never launches.
+const BLOCKED_CHILD_ENV = [
+  /^SOLFRONTIER_CONTROLLED_WALLET_KEYPAIR$/i,
+  /KEYPAIR/i,
+  /PRIVATE_?KEY/i,
+  /SECRET/i,
+  /MNEMONIC|SEED_?PHRASE/i,
+  /(^|_)TOKEN$/i,
+  /PASSWORD|PASSPHRASE/i,
+  /API_?KEY/i,
+];
+
+/** The parent environment minus anything secret-bearing. */
+export function sanitizedChildEnv(source = process.env) {
+  const out = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (BLOCKED_CHILD_ENV.some((re) => re.test(key))) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Remove anything that looks like a secret from text bound for a human.
+ *
+ * Server logs and protocol frames are attacker-influenced and operator-
+ * visible: a server can print whatever it likes to stderr, and --verbose
+ * echoes frames verbatim. Values of blocked environment variables are
+ * replaced wherever they appear, and URLs are stripped of credentials.
+ */
+export function redactSensitive(text, source = process.env) {
+  let out = String(text ?? '');
+  for (const [key, value] of Object.entries(source)) {
+    if (!value || String(value).length < 8) continue;
+    if (!BLOCKED_CHILD_ENV.some((re) => re.test(key)) && !/URL$/i.test(key)) continue;
+    out = out.split(String(value)).join(`<${key}-redacted>`);
+  }
+  return out.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s@/]+:[^\s@/]+@/gi, '$1<credentials-redacted>@');
+}
+
 export class McpSession {
   #child = null;
   #pending = new Map();
@@ -53,7 +99,10 @@ export class McpSession {
     const args = [...this.serverArgs, '--db', this.dbPath];
     // Array args, never shell:true — paths with spaces need no quoting and
     // nothing can be reinterpreted by a shell.
-    this.#child = spawn(this.serverBin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    this.#child = spawn(this.serverBin, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: sanitizedChildEnv(),
+    });
 
     this.#child.on('error', (err) => {
       this.#failAll(new TransportError(`cannot start server: ${err.message}`, { bin: this.serverBin }));
@@ -74,7 +123,11 @@ export class McpSession {
       errBuffer += errDecoder.write(chunk);
       let nl;
       while ((nl = errBuffer.indexOf('\n')) >= 0) {
-        const line = errBuffer.slice(0, nl).replace(/\r$/, '');
+        // Redacted here, at the single point of entry, so every downstream
+        // use -- the ring buffer, the verbose echo, and the tail printed with
+        // a transport error -- is safe by construction rather than by each
+        // call site remembering.
+        const line = redactSensitive(errBuffer.slice(0, nl).replace(/\r$/, ''));
         errBuffer = errBuffer.slice(nl + 1);
         this.#stderrRing.push(line);
         if (this.#stderrRing.length > STDERR_RING_LINES) this.#stderrRing.shift();

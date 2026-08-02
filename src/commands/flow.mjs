@@ -25,6 +25,7 @@ import { withSession } from '../mcp/session.mjs';
 import { SolanaRpc } from '../solana/rpc.mjs';
 import { readReserveSnapshot } from '../solana/solend.mjs';
 import { RAIL, draftParams, toRawAmount } from './intent.mjs';
+import { findFundingMatches } from '../solana/funding-proof.mjs';
 import { emitResult, info, event, style, isJsonMode } from '../cli/output.mjs';
 import { EXIT, UsageError, CliError } from '../cli/exit-codes.mjs';
 
@@ -40,14 +41,35 @@ export const spec = {
     'dry-run': { type: 'boolean' },
     yes: { type: 'boolean' },
     'poll-ms': { type: 'string' },
+    'reconcile-ms': { type: 'string' },
   },
   notes: [
     'Start the executor (`solfrontier-mcp watch --execute`) BEFORE this command.',
     'On an empty database it idles safely on "rows": [] and can wait indefinitely.',
+    'A payment is accepted only on exact proof: memo, payer signature, transferChecked',
+    'fields and both balance deltas, bound to the pinned token accounts by index.',
+    'After the signing cutoff the search continues for --reconcile-ms (default 90s),',
+    'so a payment the RPC lists late is still recorded rather than lost.',
   ],
 };
 
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+// Statuses that mean "ask again with the same signature", as opposed to a
+// verdict. Anything not listed here ends the loop: a wrong guess would either
+// spin pointlessly or, worse, hide a real answer.
+const RETRYABLE_CONFIRM_STATUSES = new Set([
+  'pending',
+  'pending_confirmation',
+  'not_yet_confirmed',
+  'funding_submitted',
+  'rpc_error',
+]);
+
+// How long to keep searching past the signing cutoff. A payment can be on
+// chain and on time while the RPC is still slow to list it; abandoning the
+// search at the cutoff is how funds get transferred with nothing recorded.
+const DEFAULT_RECONCILE_MS = 90_000;
 
 export function validate(flags) {
   const amount = flags.amount;
@@ -66,7 +88,11 @@ export function validate(flags) {
   if (!Number.isInteger(pollMs) || pollMs < 250 || pollMs > 10000) {
     throw new UsageError('--poll-ms must be an integer 250..10000');
   }
-  return { amount, thresholdBps, userWallet, pollMs, dryRun: Boolean(flags['dry-run']) };
+  const reconcileMs = Number(flags['reconcile-ms'] ?? DEFAULT_RECONCILE_MS);
+  if (!Number.isInteger(reconcileMs) || reconcileMs < 0 || reconcileMs > 600_000) {
+    throw new UsageError('--reconcile-ms must be an integer 0..600000');
+  }
+  return { amount, thresholdBps, userWallet, pollMs, reconcileMs, dryRun: Boolean(flags['dry-run']) };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -183,23 +209,76 @@ export async function run({ config, flags, verbose }) {
     }
 
     // ---- detect the human's signature ------------------------------------
+    //
+    // Two distinct deadlines, deliberately separated:
+    //
+    //   signing cutoff        after this, do not sign anything new. It is the
+    //                         funding deadline, because a payment made later
+    //                         cannot be leased by the executor.
+    //   reconciliation window a bounded period PAST the cutoff during which we
+    //                         keep looking. A transaction can be on chain and
+    //                         on time while the RPC is still slow to list it;
+    //                         stopping at the cutoff is how money ends up
+    //                         transferred with nothing recorded.
+    //
+    // Matching is exact: memo, payer signature, transferChecked fields and
+    // both balance deltas, bound to the pinned token accounts by index. A
+    // near-miss is never accepted, and never stops the search.
+    const expectedFunding = {
+      memo: `claw:w5h:${intentId}:${finalized.body.rule_hash}`,
+      amountRaw: finalized.body.funding?.amount_raw,
+      userWallet: opts.userWallet,
+      userAta: finalized.body.funding?.user_usdc_ata,
+      controlledWallet: RAIL.controlled_wallet,
+      controlledAta: RAIL.controlled_usdc_ata,
+      mint: finalized.body.funding?.mint,
+      decimals: Number(finalized.body.funding?.decimals ?? 6),
+    };
+
+    const seen = new Set();
     let fundingSignature = null;
+    let fundingProof = null;
     let lastReport = 0;
-    while (Date.now() < expiresAtMs - 3000) {
+    let warnedCutoff = false;
+    const reconcileUntil = expiresAtMs + opts.reconcileMs;
+
+    while (Date.now() < reconcileUntil) {
+      const pastCutoff = Date.now() >= expiresAtMs;
+      if (pastCutoff && !warnedCutoff) {
+        warnedCutoff = true;
+        record('detect.cutoff_passed', {});
+        info('');
+        info(style.yellow('SIGNING CUTOFF PASSED. Do not approve anything now.'));
+        info(style.dim('Still searching for an already-broadcast payment so it cannot be lost.'));
+      }
       try {
-        const sigs = await rpc.getSignaturesForAddress(RAIL.controlled_usdc_ata, 25);
-        const fresh = sigs.filter((s) => !baseline.has(s.signature) && !s.err);
-        if (fresh.length) {
-          fundingSignature = fresh[fresh.length - 1].signature;
+        const rows = await rpc.getSignaturesForAddress(RAIL.controlled_usdc_ata, 100);
+        const matches = await findFundingMatches({
+          rows,
+          expected: expectedFunding,
+          baseline,
+          seen,
+          getTransaction: (signature) => rpc.getTransaction(signature, 'confirmed').catch(() => null),
+        });
+        if (matches.length > 1) {
+          record('detect.multiple_matches', { signatures: matches.map((m) => m.signature) });
+          info(style.red('multiple exact funding payments found; confirming the earliest, then reconcile manually'));
+        }
+        if (matches.length) {
+          matches.sort((a, b) => Number(a.proof.slot) - Number(b.proof.slot));
+          fundingSignature = matches[0].signature;
+          fundingProof = matches[0].proof;
           break;
         }
       } catch (err) {
         record('detect.rpc_hiccup', { message: err.message });
       }
-      const left = Math.round((expiresAtMs - Date.now()) / 1000);
-      if (left !== lastReport && left % 15 === 0) {
-        lastReport = left;
-        info(style.dim(`waiting for signature… ${left}s left`));
+      if (!pastCutoff) {
+        const left = Math.round((expiresAtMs - Date.now()) / 1000);
+        if (left !== lastReport && left % 15 === 0) {
+          lastReport = left;
+          info(style.dim(`waiting for the exact payment… ${left}s left to sign`));
+        }
       }
       await sleep(opts.pollMs);
     }
@@ -207,39 +286,63 @@ export async function run({ config, flags, verbose }) {
     if (!fundingSignature) {
       record('detect.timeout', {});
       emitResult({ intentId, status: 'no_signature_detected', timeline });
-      info(style.red('no funding signature arrived before the deadline; the intent expires unfunded'));
+      info(style.red('no exact funding payment appeared, including the reconciliation window.'));
+      info(style.dim('If you approved in the wallet, do NOT rerun: reconcile that signature by hand.'));
       return EXIT.FAILED;
     }
-    record('detect.found', { signature: fundingSignature });
-    info(`detected ${fundingSignature.slice(0, 16)}…`);
+    const lateBySeconds = Math.round((Date.now() - expiresAtMs) / 1000);
+    record('detect.found', { signature: fundingSignature, slot: fundingProof.slot, afterCutoff: lateBySeconds > 0 });
+    info(`detected exact payment ${fundingSignature.slice(0, 16)}… (slot ${fundingProof.slot})`);
 
     // ---- confirm ---------------------------------------------------------
+    //
+    // Always attempted, even past the cutoff. Money that reached the chain
+    // must be recorded: the server decides whether it was on time, from the
+    // transaction's own blockTime, and refuses a lease if it was not. Giving
+    // up here is what leaves the chain and the database disagreeing.
+    //
+    // Only ever this one signature. A retry re-sends the same proven payment;
+    // it never looks for another and never causes a second transfer.
     let confirmation = null;
-    for (let attempt = 1; attempt <= 10 && Date.now() < expiresAtMs - 1000; attempt++) {
+    for (let attempt = 1; attempt <= 10 && Date.now() < reconcileUntil; attempt++) {
       confirmation = await session.callTool('confirm_funding', {
         intent_id: intentId,
         tx_signature: fundingSignature,
       });
       const status = confirmation.body?.status;
       record('confirm.attempt', { attempt, status });
-      if (status && status !== 'pending' && status !== 'not_yet_confirmed') break;
+      if (status === 'budget_reserved') break;
+      if (status && !RETRYABLE_CONFIRM_STATUSES.has(status)) break;
       await sleep(2000);
     }
 
     const ok = confirmation?.body?.status === 'budget_reserved';
     const secondsLeft = Math.round((expiresAtMs - Date.now()) / 1000);
-    record(ok ? 'confirm.ok' : 'confirm.failed', { secondsLeft });
+    const executable = ok && secondsLeft > 0;
+    record(ok ? 'confirm.ok' : 'confirm.failed', { secondsLeft, executable });
 
     if (isJsonMode()) {
-      emitResult({ intentId, signature: fundingSignature, confirm: confirmation?.body, secondsLeft, timeline });
+      emitResult({
+        intentId,
+        signature: fundingSignature,
+        proof: fundingProof,
+        confirm: confirmation?.body,
+        secondsLeft,
+        executable,
+        timeline,
+      });
     } else {
       emitResult(confirmation?.body ?? { status: 'unknown' });
       info('');
-      info(
-        ok
-          ? `${style.green('funded')} — ${secondsLeft}s of budget left. The executor should lease within ~5s.`
-          : style.red('confirm_funding did not reach budget_reserved; inspect the result above'),
-      );
+      if (executable) {
+        info(`${style.green('funded')} — ${secondsLeft}s of budget left. The executor should lease within ~5s.`);
+      } else if (ok) {
+        info(style.yellow('funded, but past the funding deadline: the executor cannot lease this intent.'));
+        info(style.dim('Record it as budget_reserved (expired, unexecutable, manual reconciliation required).'));
+      } else {
+        info(style.red('confirm_funding did not reach budget_reserved; inspect the result above'));
+        info(style.dim(`The payment is on chain as ${fundingSignature} — reconcile by hand, do not rerun.`));
+      }
     }
     return ok ? EXIT.OK : EXIT.FAILED;
   }, { verbose });

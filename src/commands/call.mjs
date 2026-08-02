@@ -109,7 +109,12 @@ export async function run({ config, flags, positionals, verbose }) {
 
     const { isError, body } = await session.callTool(toolName, args);
     emitResult(body);
-    const domainError = body?.status !== undefined && body.status !== 'ok';
-    return isError || domainError ? EXIT.FAILED : EXIT.OK;
+    // `call` is the generic escape hatch: it can drive any MCP server, and a
+    // `status` field on another server's payload means whatever that server
+    // decided. Treating anything but "ok" as failure made perfectly good
+    // results -- "completed", "accepted", "queued" -- exit 1. Only the
+    // protocol's own signal is authoritative here. Commands that know their
+    // server's vocabulary (quote, status, propose...) still interpret it.
+    return isError ? EXIT.FAILED : EXIT.OK;
   }, { verbose });
 }
