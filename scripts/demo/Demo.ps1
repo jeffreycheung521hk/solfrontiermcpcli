@@ -62,7 +62,13 @@ $ControlledWallet = 'BPfDMmeMBmCbMC1rWh7hwigMBoKGBrKwXxSeUu9hhs5L'
 $ControlledUsdcAta = '7LFdKcSV7JQYi3or5y9phHVPjhGigu5DDjUakAFbBmk3'
 $UsdcMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 $SolendProgram = 'So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo'
-$MainnetGenesisHash = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'
+# The full 44-character base58 genesis hash that getGenesisHash returns.
+# Not to be confused with the 32-character CAIP-2 short chain identifier
+# (solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp), which is that hash truncated
+# to 32 characters and is a different identifier. Compared with exact
+# equality on purpose: a prefix comparison would accept the CAIP-2 form and
+# silently weaken the chain-identity check.
+$MainnetGenesisHash = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'
 # CLI is pinned by the runtime objects it actually executes, not by HEAD.
 # Pinning HEAD is self-defeating here: committing this harness changes HEAD,
 # so the pin could never be satisfied by a committed copy of itself. These
