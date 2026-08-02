@@ -69,6 +69,10 @@ $SolendProgram = 'So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo'
 # equality on purpose: a prefix comparison would accept the CAIP-2 form and
 # silently weaken the chain-identity check.
 $MainnetGenesisHash = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'
+# Verified against every reserve snapshot, never used to define the rule: the
+# 16-slot bound belongs to the reviewed executor and CLI. A mismatch means the
+# runtime moved underneath this harness and is a hard failure, not a wait.
+$ExpectedMaxReserveStalenessSlots = 16
 # CLI is pinned by the runtime objects it actually executes, not by HEAD.
 # Pinning HEAD is self-defeating here: committing this harness changes HEAD,
 # so the pin could never be satisfied by a committed copy of itself. These
@@ -516,11 +520,12 @@ function Find-ExactFundingSignatures([string]$Memo) {
     return @($matches)
 }
 
-function Assert-DoctorStrict {
+# Everything a strict doctor gate requires EXCEPT reserve freshness. Any
+# failure here is terminal: these conditions do not improve by waiting.
+function Get-DoctorSnapshotStrict {
     $doctor = Invoke-CliJson @('doctor', '--threshold-bps', [string]$ThresholdBps)
     Assert-Equal $doctor.Body.verdict 'GO' 'doctor verdict'
     Assert-True ($null -ne $doctor.Body.reserve) 'doctor returned no reserve snapshot'
-    Assert-True ([bool]$doctor.Body.reserve.fresh) 'reserve is stale; doctor GO warnings are not accepted for this demo'
     Assert-True ([int]$doctor.Body.reserve.supplyAprBps -gt $ThresholdBps) 'supply APY does not clear the threshold'
     $condition = @($doctor.Body.checks | Where-Object { $_.name -eq 'condition vs threshold' })
     Assert-True ($condition.Count -eq 1 -and $condition[0].status -eq 'pass') 'doctor threshold check is not PASS'
@@ -529,6 +534,68 @@ function Assert-DoctorStrict {
     $keyCheck = @($doctor.Body.checks | Where-Object { $_.name -eq 'controlled wallet keypair' })
     Assert-True ($keyCheck.Count -eq 1 -and $keyCheck[0].status -eq 'pass') 'doctor says the client shell contains the controlled keypair'
     return $doctor.Body
+}
+
+# Pure decision over one reserve snapshot: 'pass', 'wait' or 'fail'.
+#
+# Freshness is NOT "age <= 16". The executor requires all three of:
+#     staleFlag == false  AND  ageSlots >= 0  AND  ageSlots <= maxStalenessSlots
+# An account can report age 0 while its explicit stale bit is still set, which
+# reads as fresh if you only look at age and would pick a moment the executor
+# still refuses. Only the two genuinely transient shapes may be waited out;
+# anything else fails closed rather than spinning until timeout.
+#
+# Kept free of I/O so Check can exercise it offline against synthetic cases.
+function Get-FreshnessDecision($Reserve) {
+    if ($null -eq $Reserve) { return 'fail' }
+    if ($null -eq $Reserve.staleFlag -or $null -eq $Reserve.ageSlots) { return 'fail' }
+
+    # Verified, not defined here: the threshold belongs to the reviewed CLI.
+    $max = [int]$Reserve.maxStalenessSlots
+    if ($max -ne $ExpectedMaxReserveStalenessSlots) { return 'fail' }
+
+    if ([int]$Reserve.supplyAprBps -le $ThresholdBps) { return 'fail' }
+
+    $age = [int]$Reserve.ageSlots
+    $stale = [bool]$Reserve.staleFlag
+    if ($age -lt 0) { return 'fail' }              # future last_update: impossible
+    if (-not $stale -and $age -le $max) { return 'pass' }
+    if ($stale) { return 'wait' }                  # explicit stale bit, refresh pending
+    if ($age -gt $max) { return 'wait' }           # merely too old, a refresh fixes it
+    return 'fail'
+}
+
+# Bounded read-only wait for a genuinely fresh reserve.
+#
+# Re-runs the full pinned doctor every poll so a run cannot slip through on a
+# stale reading: the verdict, RPC, keyless shell, APY and condition checks are
+# all re-verified each time. Returns the exact snapshot that passed — never a
+# remembered earlier sighting of freshness, which would be a lie about the
+# state at the moment the caller proceeds.
+function Assert-DoctorFreshnessBounded([int]$TimeoutSeconds = 120, [int]$PollSeconds = 2) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $attempts = 0
+    $startedAt = Get-Date
+    while ($true) {
+        $attempts++
+        $snapshot = Get-DoctorSnapshotStrict          # hard failures stop here
+        $reserve = $snapshot.reserve
+        $decision = Get-FreshnessDecision $reserve
+
+        if ($decision -eq 'pass') {
+            $waited = [int]((Get-Date) - $startedAt).TotalSeconds
+            Write-Host "reserve fresh after $attempts doctor poll(s), ${waited}s (age $([int]$reserve.ageSlots) slots, stale=$([bool]$reserve.staleFlag))"
+            return [pscustomobject]@{ Body = $snapshot; Attempts = $attempts; WaitedSeconds = $waited }
+        }
+        if ($decision -eq 'fail') {
+            Stop-Demo "reserve snapshot is not waitable (ageSlots=$($reserve.ageSlots), staleFlag=$($reserve.staleFlag), maxStalenessSlots=$($reserve.maxStalenessSlots), supplyAprBps=$($reserve.supplyAprBps))"
+        }
+        if ((Get-Date) -ge $deadline) {
+            Stop-Demo "reserve did not become fresh within ${TimeoutSeconds}s ($attempts polls; last ageSlots=$($reserve.ageSlots), staleFlag=$($reserve.staleFlag))"
+        }
+        Write-Host "waiting for a fresh reserve: age $([int]$reserve.ageSlots) slots, stale=$([bool]$reserve.staleFlag) (poll $attempts)"
+        Start-Sleep -Seconds $PollSeconds
+    }
 }
 
 function Assert-IntentUnused {
@@ -729,9 +796,6 @@ function Invoke-Preflight {
     Assert-True ($userSol -ge 1000000) "user SOL balance is too low for a funding fee: $userSol lamports"
     Assert-True ($controlledSol -ge 20000000) "controlled SOL balance is below the 0.02 SOL demo floor: $controlledSol lamports"
 
-    Write-Step 'Strict doctor gate'
-    $doctor = Assert-DoctorStrict
-
     Write-Step 'Dedicated DB is empty and deterministic intent is unused'
     Assert-IntentUnused
     $cycle = Assert-EmptyCycle (Invoke-WatchOnce -QuietDisplay)
@@ -740,6 +804,13 @@ function Invoke-Preflight {
     $memoPrefix = "claw:w5h:${ExpectedIntentId}:"
     $memoMatches = @(Find-MemoPrefixOnChain $memoPrefix)
     Assert-True ($memoMatches.Count -eq 0) "found prior on-chain memo(s) for this intent: $($memoMatches -join ', ')"
+
+    # Last, because the reserve is fresh for only a few seconds at a time:
+    # every slow check above must already be done, so the snapshot recorded
+    # below is still true when the record is written.
+    Write-Step 'Bounded wait for a strictly fresh reserve'
+    $doctorWait = Assert-DoctorFreshnessBounded
+    $doctor = $doctorWait.Body
 
     $record = [ordered]@{
         schemaVersion = 1
@@ -758,6 +829,7 @@ function Invoke-Preflight {
         balances = @{ userUsdcRaw = [string]$userUsdc; controlledUsdcRaw = [string]$controlledUsdc; userSolLamports = [string]$userSol; controlledSolLamports = [string]$controlledSol }
         source = @{ nodeVersion = $nodeVersion; cliHead = $cliRuntime.head; cliSrcTree = $cliRuntime.srcTree; cliPackageBlob = $cliRuntime.packageBlob; serverHead = $serverHead; binarySha256 = $binaryHash; signingPageSha256 = $pageHash; signingGuardSha256 = $guardHash; demoConfigSha256 = $configHash }
         reserve = $doctor.reserve
+        freshnessWait = @{ polls = $doctorWait.Attempts; waitedSeconds = $doctorWait.WaitedSeconds }
         cycleSummary = $cycle.summary
     }
     Write-JsonFile $PreflightPath $record
@@ -991,7 +1063,6 @@ function Invoke-Live {
     [void](Assert-Heartbeat)
     [void](Assert-SigningPage)
     [void](Assert-RpcMainnetAndClock)
-    [void](Assert-DoctorStrict)
     Assert-IntentUnused
     [void](Assert-EmptyCycle (Invoke-WatchOnce -QuietDisplay))
 
@@ -1027,9 +1098,15 @@ function Invoke-Live {
     Assert-True ($liveUserSol -ge 1000000) "live user SOL balance is too low: $liveUserSol lamports"
     Assert-True ($liveControlledSol -ge 20000000) "live controlled SOL balance is too low: $liveControlledSol lamports"
 
-    # All slower source/page/account checks are now complete. Require one last
-    # fresh, idle executor heartbeat immediately before consuming this run's
-    # one-shot marker and writing the live intent.
+    # All slower source/page/account checks are now complete. The reserve is
+    # fresh only a few seconds at a time, so wait for it here — after
+    # everything slow, and immediately before the one-shot marker — rather
+    # than earlier, where the window would have expired before finalize.
+    Write-Step 'Bounded wait for a strictly fresh reserve'
+    [void](Assert-DoctorFreshnessBounded)
+
+    # Then one last fresh, idle executor heartbeat immediately before
+    # consuming this run's one-shot marker and writing the live intent.
     [void](Assert-Heartbeat)
 
     $liveRecord = [ordered]@{
@@ -1319,6 +1396,28 @@ function Invoke-Check {
     Assert-True ($objects.Count -eq 2) "JSON object extractor returned $($objects.Count), expected two"
     Assert-True (@($objects[0].rows).Count -eq 0) 'JSON object extractor corrupted the cycle report'
     Assert-True ([bool]$objects[1].abort_remaining_cycle) 'JSON object extractor corrupted the attempt report'
+    # Freshness decision, offline. These encode the distinction that matters:
+    # fresh is not "age <= 16", it is "stale bit clear AND 0 <= age <= 16".
+    $mk = {
+        param($age, $stale, $apr)
+        [pscustomobject]@{ ageSlots = $age; staleFlag = $stale; maxStalenessSlots = 16; supplyAprBps = $apr }
+    }
+    $goodApr = $ThresholdBps + 1
+    Assert-Equal (Get-FreshnessDecision (& $mk 3 $false $goodApr)) 'pass' 'freshness case age=3 stale=false'
+    Assert-Equal (Get-FreshnessDecision (& $mk 0 $false $goodApr)) 'pass' 'freshness case age=0 stale=false'
+    Assert-Equal (Get-FreshnessDecision (& $mk 16 $false $goodApr)) 'pass' 'freshness case age=16 stale=false (boundary)'
+    # Age 0 with the stale bit set: reads fresh if you only look at age.
+    Assert-Equal (Get-FreshnessDecision (& $mk 0 $true $goodApr)) 'wait' 'freshness case age=0 stale=true'
+    Assert-Equal (Get-FreshnessDecision (& $mk 17 $false $goodApr)) 'wait' 'freshness case age=17 stale=false'
+    Assert-Equal (Get-FreshnessDecision (& $mk 999 $true $goodApr)) 'wait' 'freshness case very old and stale'
+    # Hard failures: never waited out.
+    Assert-Equal (Get-FreshnessDecision (& $mk -1 $false $goodApr)) 'fail' 'freshness case negative age'
+    Assert-Equal (Get-FreshnessDecision (& $mk 3 $false $ThresholdBps)) 'fail' 'freshness case APY equal to threshold'
+    Assert-Equal (Get-FreshnessDecision (& $mk 3 $false ($ThresholdBps - 1))) 'fail' 'freshness case APY below threshold'
+    Assert-Equal (Get-FreshnessDecision $null) 'fail' 'freshness case null reserve'
+    $wrongMax = [pscustomobject]@{ ageSlots = 3; staleFlag = $false; maxStalenessSlots = 32; supplyAprBps = $goodApr }
+    Assert-Equal (Get-FreshnessDecision $wrongMax) 'fail' 'freshness case unexpected staleness bound'
+
     $tokens = $null
     $errors = $null
     [void][Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$tokens, [ref]$errors)
