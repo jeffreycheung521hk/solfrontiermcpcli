@@ -569,7 +569,7 @@ function Get-FreshnessDecision($Reserve) {
 #
 # Re-runs the full pinned doctor every poll so a run cannot slip through on a
 # stale reading: the verdict, RPC, keyless shell, APY and condition checks are
-# all re-verified each time. Returns the exact snapshot that passed — never a
+# all re-verified each time. Returns the exact snapshot that passed -- never a
 # remembered earlier sighting of freshness, which would be a lie about the
 # state at the moment the caller proceeds.
 function Assert-DoctorFreshnessBounded([int]$TimeoutSeconds = 120, [int]$PollSeconds = 2) {
@@ -1099,8 +1099,8 @@ function Invoke-Live {
     Assert-True ($liveControlledSol -ge 20000000) "live controlled SOL balance is too low: $liveControlledSol lamports"
 
     # All slower source/page/account checks are now complete. The reserve is
-    # fresh only a few seconds at a time, so wait for it here — after
-    # everything slow, and immediately before the one-shot marker — rather
+    # fresh only a few seconds at a time, so wait for it here -- after
+    # everything slow, and immediately before the one-shot marker -- rather
     # than earlier, where the window would have expired before finalize.
     Write-Step 'Bounded wait for a strictly fresh reserve'
     [void](Assert-DoctorFreshnessBounded)
@@ -1396,6 +1396,29 @@ function Invoke-Check {
     Assert-True ($objects.Count -eq 2) "JSON object extractor returned $($objects.Count), expected two"
     Assert-True (@($objects[0].rows).Count -eq 0) 'JSON object extractor corrupted the cycle report'
     Assert-True ([bool]$objects[1].abort_remaining_cycle) 'JSON object extractor corrupted the attempt report'
+    # Raw-byte ASCII gate. Windows PowerShell 5.1 reads a script without a BOM
+    # using the system ANSI codepage, so a UTF-8 multi-byte character is
+    # decoded as two or three separate characters. In a comment that is merely
+    # ugly; in a string literal, a regex or a pinned constant it silently
+    # changes what the script compares against. Held to zero rather than
+    # "valid UTF-8" so the file means the same thing under every codepage.
+    $asciiTargets = @(
+        @{ Path = $PSCommandPath; Label = 'Demo.ps1' },
+        @{ Path = $SigningGuardSource; Label = 'signing-guard.js' },
+        @{ Path = $DemoConfig; Label = 'demo.config.json' }
+    )
+    $nonAsciiTotal = 0
+    foreach ($target in $asciiTargets) {
+        $bytes = [IO.File]::ReadAllBytes($target.Path)
+        $count = @($bytes | Where-Object { $_ -gt 127 }).Count
+        $nonAsciiTotal += $count
+        if ($count -ne 0) {
+            Stop-Demo "$($target.Label) contains $count non-ASCII byte(s); demo sources must be pure ASCII"
+        }
+    }
+    Assert-Equal $nonAsciiTotal 0 'non-ASCII byte total across demo sources'
+    Write-Host "NON_ASCII_BYTES=$nonAsciiTotal"
+
     # Freshness decision, offline. These encode the distinction that matters:
     # fresh is not "age <= 16", it is "stale bit clear AND 0 <= age <= 16".
     $mk = {
