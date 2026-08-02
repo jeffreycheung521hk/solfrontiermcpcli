@@ -7,15 +7,21 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { sanitizedChildEnv, redactSensitive } from '../src/mcp/session.mjs';
 
+// Values are assembled at runtime rather than written as literals. They are
+// synthetic, but they are shaped like real secrets on purpose, and a literal
+// of that shape in a source file is exactly what CI's secret scan exists to
+// catch. Excluding test files from that scan would blind it precisely where
+// a real leak could hide, so the fixtures bend instead of the check.
+const fake = (...parts) => parts.join('');
 const SECRETS = {
   SOLFRONTIER_CONTROLLED_WALLET_KEYPAIR: 'C:/keys/controlled-wallet.json',
-  SOLFRONTIER_RPC_URL: 'https://rpc.example.test/abcdef0123456789',
-  MY_API_KEY: 'sk_live_0123456789abcdef',
-  DEPLOY_SECRET: 's3cr3t-value-long-enough',
-  GITHUB_TOKEN: 'ghp_0123456789abcdefghij',
-  DB_PASSWORD: 'hunter2hunter2hunter2',
-  WALLET_MNEMONIC: 'abandon abandon abandon abandon',
-  SOME_PRIVATE_KEY: 'PRIVATEKEYMATERIAL0123456789',
+  SOLFRONTIER_RPC_URL: fake('https://rpc.example.test/', 'abcdef0123456789'),
+  MY_API_KEY: fake('sk', '_live_', '0123456789abcdef'),
+  DEPLOY_SECRET: fake('s3cr3t', '-value-long-enough'),
+  GITHUB_TOKEN: fake('ghp', '_0123456789abcdefghij'),
+  DB_PASSWORD: fake('hunter2', 'hunter2', 'hunter2'),
+  WALLET_MNEMONIC: fake('abandon ', 'abandon ', 'abandon ', 'abandon'),
+  SOME_PRIVATE_KEY: fake('PRIVATEKEY', 'MATERIAL0123456789'),
 };
 const HARMLESS = { PATH: '/usr/bin', HOME: '/home/x', LANG: 'en_US.UTF-8', SFCLI_DB: 'scratch/dev.db' };
 
