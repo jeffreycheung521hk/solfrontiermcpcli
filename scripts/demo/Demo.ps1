@@ -61,6 +61,11 @@ $UserUsdcAta = '4bDArC4UVoBjecHUZaCKqhuhTYPoiKS4qpQQpxuvm1qn'
 $ControlledWallet = 'BPfDMmeMBmCbMC1rWh7hwigMBoKGBrKwXxSeUu9hhs5L'
 $ControlledUsdcAta = '7LFdKcSV7JQYi3or5y9phHVPjhGigu5DDjUakAFbBmk3'
 $UsdcMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+# Pinned so funding proof reads the instructions themselves rather than the
+# RPC's memo summary field, which is formatted "[byte_len] memo" and joins
+# multiple memos with "; ".
+$MemoProgramId = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'
+$TokenProgramId = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 $SolendProgram = 'So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo'
 # The full 44-character base58 genesis hash that getGenesisHash returns.
 # Not to be confused with the 32-character CAIP-2 short chain identifier
@@ -434,32 +439,87 @@ function Get-Transaction([string]$Signature, [string]$Commitment = 'confirmed') 
     })
 }
 
+# Balance delta for one owner+mint pair, from the parsed pre/post rows.
+function Get-OwnerTokenDelta($Transaction, [string]$Owner, [string]$Mint) {
+    $preRow = @($Transaction.meta.preTokenBalances | Where-Object {
+        [string]$_.owner -eq $Owner -and [string]$_.mint -eq $Mint
+    }) | Select-Object -First 1
+    $postRow = @($Transaction.meta.postTokenBalances | Where-Object {
+        [string]$_.owner -eq $Owner -and [string]$_.mint -eq $Mint
+    }) | Select-Object -First 1
+    if ($null -eq $postRow -and $null -eq $preRow) { return $null }
+    $pre = if ($null -eq $preRow) { [long]0 } else { [long]$preRow.uiTokenAmount.amount }
+    $post = if ($null -eq $postRow) { [long]0 } else { [long]$postRow.uiTokenAmount.amount }
+    return [pscustomobject]@{ Pre = $pre; Post = $post; Delta = $post - $pre }
+}
+
+# Every outer (top-level) Memo instruction's exact text, taken from the
+# instruction data rather than from logs or the RPC's memo summary field.
+function Get-OuterMemoTexts($Transaction) {
+    $texts = @()
+    foreach ($ix in @($Transaction.transaction.message.instructions)) {
+        if ([string]$ix.programId -ne $MemoProgramId) { continue }
+        # jsonParsed renders the Memo program's payload into .parsed as a
+        # plain string; fall back to nothing rather than guessing.
+        if ($null -ne $ix.parsed -and $ix.parsed -is [string]) { $texts += ,([string]$ix.parsed) }
+    }
+    return @($texts)
+}
+
+# Authoritative client-side proof that one transaction is THIS run's funding.
+#
+# Deliberately reads the instructions, not the RPC's memo summary: that field
+# is formatted as "[byte_len] memo" and joins multiple memos with "; ", so
+# neither equality nor EndsWith over it is a correctness gate. The server
+# re-verifies all of this independently; this exists so the client never hands
+# confirm_funding a transaction that is not exactly the one it is waiting for.
 function Test-FundingTransaction($Transaction, [string]$ExpectedMemo) {
     if ($null -eq $Transaction) { return $null }
     if ($null -ne $Transaction.meta.err) { return $null }
+
+    # 1. The registered payer must have signed it.
     $keys = @($Transaction.transaction.message.accountKeys)
     $userSigner = @($keys | Where-Object {
         [string]$_.pubkey -eq $UserWallet -and [bool]$_.signer
     }).Count -gt 0
     if (-not $userSigner) { return $null }
-    $controlledIndex = -1
-    for ($i = 0; $i -lt $keys.Count; $i++) {
-        if ([string]$keys[$i].pubkey -eq $ControlledUsdcAta) { $controlledIndex = $i; break }
+
+    # 2. Exactly one outer Memo instruction, exactly this run's text.
+    $memos = @(Get-OuterMemoTexts $Transaction)
+    if ($memos.Count -ne 1) { return $null }
+    if ([string]$memos[0] -cne $ExpectedMemo) { return $null }
+
+    # 3. Exactly one outer TransferChecked, with every field pinned.
+    $transfers = @()
+    foreach ($ix in @($Transaction.transaction.message.instructions)) {
+        if ([string]$ix.programId -ne $TokenProgramId) { continue }
+        if ([string]$ix.parsed.type -ne 'transferChecked') { continue }
+        $transfers += ,$ix
     }
-    if ($controlledIndex -lt 0) { return $null }
-    $preRow = @($Transaction.meta.preTokenBalances | Where-Object {
-        [int]$_.accountIndex -eq $controlledIndex -and [string]$_.mint -eq $UsdcMint
-    }) | Select-Object -First 1
-    $postRow = @($Transaction.meta.postTokenBalances | Where-Object {
-        [int]$_.accountIndex -eq $controlledIndex -and [string]$_.mint -eq $UsdcMint
-    }) | Select-Object -First 1
-    if ($null -eq $postRow) { return $null }
-    $pre = if ($null -eq $preRow) { [long]0 } else { [long]$preRow.uiTokenAmount.amount }
-    $post = [long]$postRow.uiTokenAmount.amount
-    if (($post - $pre) -ne [long]$AmountRaw) { return $null }
-    $logs = [string]::Join([Environment]::NewLine, @($Transaction.meta.logMessages))
-    if (-not $logs.Contains($ExpectedMemo)) { return $null }
-    return [pscustomobject]@{ Slot = [long]$Transaction.slot; Pre = $pre; Post = $post; Delta = $post - $pre }
+    if ($transfers.Count -ne 1) { return $null }
+    $info = $transfers[0].parsed.info
+    if ([string]$info.source -cne $UserUsdcAta) { return $null }
+    if ([string]$info.destination -cne $ControlledUsdcAta) { return $null }
+    if ([string]$info.mint -cne $UsdcMint) { return $null }
+    if ([string]$info.authority -cne $UserWallet) { return $null }
+    if ([string]$info.tokenAmount.amount -cne [string]$AmountRaw) { return $null }
+    if ([int]$info.tokenAmount.decimals -ne 6) { return $null }
+
+    # 4. Both sides of the ledger moved by exactly the pinned amount.
+    $controlled = Get-OwnerTokenDelta $Transaction $ControlledWallet $UsdcMint
+    $user = Get-OwnerTokenDelta $Transaction $UserWallet $UsdcMint
+    if ($null -eq $controlled -or $null -eq $user) { return $null }
+    if ($controlled.Delta -ne [long]$AmountRaw) { return $null }
+    if ($user.Delta -ne -[long]$AmountRaw) { return $null }
+
+    return [pscustomobject]@{
+        Slot = [long]$Transaction.slot
+        Pre = $controlled.Pre
+        Post = $controlled.Post
+        Delta = $controlled.Delta
+        UserDelta = $user.Delta
+        Memo = [string]$memos[0]
+    }
 }
 
 function Test-ExecutionTransaction($Transaction) {
@@ -1194,10 +1254,17 @@ function Invoke-Live {
                 if ($null -ne $row.err) { continue }
                 $signature = [string]$row.signature
                 if ($baselineSignatures.ContainsKey($signature) -or $seenSignatures.ContainsKey($signature)) { continue }
-                if ($null -ne $row.memo -and [string]$row.memo -ne $memo) {
-                    $seenSignatures[$signature] = $true
-                    continue
-                }
+                # No memo prefilter here, deliberately. getSignaturesForAddress
+                # does not return the raw memo: the RPC formats it as
+                # "[byte_len] memo" and joins multiple memos with "; ". An
+                # exact-equality prefilter on that field rejected the one
+                # correct, on-time funding transaction of the 2026-08-02 run
+                # and blacklisted it for the rest of the window, so the real
+                # verifier below was never reached and 0.2 USDC was stranded.
+                # EndsWith would not be a correct gate either, since a
+                # transaction carrying an unrelated memo followed by ours
+                # would pass it. Every non-baseline candidate now goes to
+                # Test-FundingTransaction, which reads the instruction itself.
                 $tx = Get-Transaction $signature 'confirmed'
                 if ($null -eq $tx) { continue }
                 $proof = Test-FundingTransaction $tx $memo
@@ -1416,6 +1483,99 @@ function Invoke-Check {
     Assert-True ($objects.Count -eq 2) "JSON object extractor returned $($objects.Count), expected two"
     Assert-True (@($objects[0].rows).Count -eq 0) 'JSON object extractor corrupted the cycle report'
     Assert-True ([bool]$objects[1].abort_remaining_cycle) 'JSON object extractor corrupted the attempt report'
+    # Funding-proof regressions over synthetic transactions.
+    #
+    # The 2026-08-02 run stranded 0.2 USDC because a prefilter compared the
+    # RPC's memo summary field for exact equality. That field is formatted
+    # "[byte_len] memo", so the one correct, on-time transaction was rejected
+    # and blacklisted, and the real verifier below never saw it. These cases
+    # pin both halves of the lesson: the summary field is never trusted, and
+    # the verifier reads the instructions.
+    $mkFunding = {
+        param($memoTexts, $amount, $userSigns, $source, $dest, $authority, $userDelta, $ctlDelta)
+        $instructions = @()
+        foreach ($t in @($memoTexts)) {
+            $instructions += ,([pscustomobject]@{ programId = $MemoProgramId; parsed = $t })
+        }
+        $instructions += ,([pscustomobject]@{
+            programId = $TokenProgramId
+            parsed = [pscustomobject]@{
+                type = 'transferChecked'
+                info = [pscustomobject]@{
+                    source = $source; destination = $dest; mint = $UsdcMint; authority = $authority
+                    tokenAmount = [pscustomobject]@{ amount = [string]$amount; decimals = 6 }
+                }
+            }
+        })
+        [pscustomobject]@{
+            slot = 1
+            meta = [pscustomobject]@{
+                err = $null
+                logMessages = @('Program MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr invoke [1]')
+                preTokenBalances = @(
+                    [pscustomobject]@{ owner = $UserWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = '1000000' } },
+                    [pscustomobject]@{ owner = $ControlledWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = '0' } }
+                )
+                postTokenBalances = @(
+                    [pscustomobject]@{ owner = $UserWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = [string](1000000 + $userDelta) } },
+                    [pscustomobject]@{ owner = $ControlledWallet; mint = $UsdcMint; uiTokenAmount = [pscustomobject]@{ amount = [string]$ctlDelta } }
+                )
+            }
+            transaction = [pscustomobject]@{
+                message = [pscustomobject]@{
+                    accountKeys = @([pscustomobject]@{ pubkey = $UserWallet; signer = $userSigns })
+                    instructions = $instructions
+                }
+            }
+        }
+    }
+    $goodMemo = 'claw:w5h:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:' + ('b' * 64)
+    $good = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -ne (Test-FundingTransaction $good $goodMemo)) 'funding proof rejected an exactly correct transaction'
+
+    # The regression that cost real money: the RPC summary carries a length
+    # prefix, but the instruction text does not. The verifier must not care.
+    $rpcSummary = "[$($goodMemo.Length)] $goodMemo"
+    Assert-True ($rpcSummary -ne $goodMemo) 'RPC memo summary fixture is not actually prefixed'
+    Assert-True ($null -ne (Test-FundingTransaction $good $goodMemo)) 'funding proof must ignore the RPC memo summary format'
+
+    # A prefixed memo in the INSTRUCTION is a different memo, and must fail.
+    $prefixedIx = & $mkFunding @($rpcSummary) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $prefixedIx $goodMemo)) 'funding proof accepted a length-prefixed instruction memo'
+
+    # Extra memos, in either position: EndsWith would accept the first of
+    # these, which is why EndsWith is not the fix.
+    $memoBefore = & $mkFunding @('unrelated', $goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $memoBefore $goodMemo)) 'funding proof accepted an extra leading memo'
+    $memoAfter = & $mkFunding @($goodMemo, 'unrelated') $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $memoAfter $goodMemo)) 'funding proof accepted an extra trailing memo'
+    $noMemo = & $mkFunding @() $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $noMemo $goodMemo)) 'funding proof accepted a transaction with no memo'
+
+    # A memo present only in logs, with no outer instruction, must not count.
+    $logsOnly = & $mkFunding @() $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    $logsOnly.meta.logMessages = @("Program log: Memo (len 106): ""$goodMemo""")
+    Assert-True ($null -eq (Test-FundingTransaction $logsOnly $goodMemo)) 'funding proof accepted a memo that exists only in logs'
+
+    # A longer memo that merely contains ours is not ours.
+    $superset = & $mkFunding @($goodMemo + ':extra') $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $superset $goodMemo)) 'funding proof accepted a superset memo'
+
+    # Amount, routing, authority and signer are each independently fatal.
+    $wrongAmount = & $mkFunding @($goodMemo) 199999 $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-199999) 199999
+    Assert-True ($null -eq (Test-FundingTransaction $wrongAmount $goodMemo)) 'funding proof accepted a wrong amount'
+    $wrongDest = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $UserUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $wrongDest $goodMemo)) 'funding proof accepted a wrong destination'
+    $wrongAuthority = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $ControlledWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $wrongAuthority $goodMemo)) 'funding proof accepted a wrong authority'
+    $notSigned = & $mkFunding @($goodMemo) $AmountRaw $false $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $notSigned $goodMemo)) 'funding proof accepted an unsigned payer'
+    $lopsided = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-1) ([long]$AmountRaw)
+    Assert-True ($null -eq (Test-FundingTransaction $lopsided $goodMemo)) 'funding proof accepted mismatched balance deltas'
+    $failed = & $mkFunding @($goodMemo) $AmountRaw $true $UserUsdcAta $ControlledUsdcAta $UserWallet (-[long]$AmountRaw) ([long]$AmountRaw)
+    $failed.meta.err = [pscustomobject]@{ InstructionError = @(0, 'Custom') }
+    Assert-True ($null -eq (Test-FundingTransaction $failed $goodMemo)) 'funding proof accepted a failed transaction'
+
     # Atomic-write regression. The first Preflight succeeded and the second
     # crashed because Write-JsonFile only ever took its create branch in
     # testing; the overwrite branch passed $null as File.Replace's backup
