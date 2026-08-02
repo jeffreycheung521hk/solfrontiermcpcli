@@ -164,6 +164,14 @@ server (`--hang`, `--garbage`, `--die-mid`, `--wrong-id`, `--rpc-error`,
 skips when its gate is unset, so a misconfigured CI job cannot report a false
 green.
 
+## Project state
+
+[`docs/ENGINEERING.md`](docs/ENGINEERING.md) is the engineering record: the
+architecture, the design decisions and their reasons, and — most usefully — a
+table of **what is proven versus what is not**. The one unproven area is
+stated there rather than left for a reader to find out: `flow`'s real funding
+path has component-level tests but no end-to-end run under a live deadline.
+
 ## Licence
 
 MIT. All Solana addresses in this repository are public on-chain data.
