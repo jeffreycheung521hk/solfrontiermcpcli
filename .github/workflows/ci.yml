@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is the primary target; Ubuntu proves nothing platform-specific
+        # crept in. Node 20 is the floor declared in package.json.
+        os: [windows-latest, ubuntu-latest]
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: No dependencies to install
+        run: node -e "const p=require('./package.json');const n=Object.keys({...p.dependencies,...p.devDependencies}).length;if(n){console.error('expected zero dependencies, found '+n);process.exit(1)}console.log('zero dependencies confirmed')"
+
+      - name: Syntax check every source file
+        shell: bash
+        run: |
+          for f in $(find src scripts test -name '*.mjs'); do
+            node --check "$f" || exit 1
+          done
+          echo "all modules parse"
+
+      - name: Hermetic test suite
+        run: npm test
+
+      - name: Secret hygiene
+        shell: bash
+        run: |
+          # No endpoint-looking URLs outside documentation examples, and no
+          # key material anywhere. Public Solana addresses are fine.
+          if grep -rInE '(api[_-]?key|BEGIN [A-Z ]*PRIVATE KEY|mnemonic)' src/ scripts/ test/ ; then
+            echo "possible secret material committed"; exit 1
+          fi
+          echo "no secret material found"

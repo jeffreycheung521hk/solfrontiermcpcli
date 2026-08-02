@@ -1,0 +1,8 @@
+# machine-local: absolute paths for this machine. Never secrets.
+sfcli.config.json
+
+# scratch databases and working files
+scratch/
+
+node_modules/
+*.log

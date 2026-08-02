@@ -1,0 +1,40 @@
+{
+  "name": "solfrontier-cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A bounded-intent MCP client: drive any MCP server from the shell, preflight a run before it costs you a deadline, and verify published on-chain claims against the ledger.",
+  "license": "MIT",
+  "bin": {
+    "sfcli": "src/index.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "src",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "sfcli": "node src/index.mjs",
+    "setup": "node scripts/setup.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "test:real": "node --test test/integration.real.test.mjs",
+    "lint": "node --check src/index.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "solana",
+    "cli",
+    "json-rpc",
+    "audit"
+  ],
+  "dependencies": {},
+  "devDependencies": {}
+}
