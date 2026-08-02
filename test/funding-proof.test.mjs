@@ -111,6 +111,59 @@ describe('the real 2026-08-02 payload', () => {
   });
 });
 
+describe('an old payment cannot satisfy a new intent', () => {
+  // Intent ids are deterministic from (threshold_bps, amount_raw), so
+  // re-running the same parameters produces the same memo. The server checks
+  // only that a payment is not too LATE; it has no lower bound. Without a
+  // slot floor the previous run's transaction is a perfect forgery of this
+  // run's, and it is already on chain.
+  const SLOT = 436774687;
+
+  test('the real transaction is rejected when it predates the intent', () => {
+    const r = verifyFundingTransaction(fixture.transaction, { ...EXPECTED, notBeforeSlot: SLOT });
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'predates_intent');
+  });
+
+  test('a transaction in the same slot as the floor is rejected', () => {
+    const r = verifyFundingTransaction(fixture.transaction, { ...EXPECTED, notBeforeSlot: SLOT - 1 + 1 });
+    assert.equal(r.reason, 'predates_intent');
+  });
+
+  test('a transaction after the floor is accepted', () => {
+    const r = verifyFundingTransaction(fixture.transaction, { ...EXPECTED, notBeforeSlot: SLOT - 1 });
+    assert.equal(r.ok, true, JSON.stringify(r));
+  });
+
+  test('the floor defeats a replay that the signature baseline misses', async () => {
+    // The baseline was 25 deep while the search scanned 100. Model an
+    // identical pre-run payment ranked beyond the baseline's depth: the
+    // baseline cannot exclude it, so the slot floor must.
+    const shallowBaseline = new Set(['some-other-signature']);
+    const withoutFloor = await findFundingMatches({
+      rows: [fixture.row],
+      expected: EXPECTED,
+      baseline: shallowBaseline,
+      getTransaction: async () => fixture.transaction,
+    });
+    assert.equal(withoutFloor.length, 1, 'precondition: the baseline does not exclude it');
+
+    const withFloor = await findFundingMatches({
+      rows: [fixture.row],
+      expected: { ...EXPECTED, notBeforeSlot: SLOT },
+      baseline: shallowBaseline,
+      getTransaction: async () => fixture.transaction,
+    });
+    assert.equal(withFloor.length, 0, 'the slot floor must reject a payment older than the intent');
+  });
+
+  test('a transaction with no slot is rejected when a floor is set', () => {
+    const tx = clone(fixture.transaction);
+    delete tx.slot;
+    assert.equal(verifyFundingTransaction(tx, { ...EXPECTED, notBeforeSlot: 1 }).reason, 'no_slot');
+  });
+});
+
 describe('selection excludes only what is provably irrelevant', () => {
   test('honours the baseline', () => {
     const s = selectCandidateSignatures([fixture.row], new Set([fixture.signature]));

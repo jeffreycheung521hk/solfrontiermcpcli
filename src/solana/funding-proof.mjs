@@ -108,10 +108,26 @@ export function verifyFundingTransaction(transaction, expected) {
     controlledAta,
     mint,
     decimals = 6,
+    notBeforeSlot = null,
   } = expected;
 
   if (!transaction) return { ok: false, reason: 'no_transaction' };
   if (transaction.meta?.err != null) return { ok: false, reason: 'on_chain_error' };
+
+  // A payment for this intent cannot predate the intent. Without this bound,
+  // an OLD transaction can satisfy a NEW run: intent ids are deterministic
+  // from (threshold_bps, amount_raw), so re-running the same parameters
+  // produces the same memo, and the server's confirm_funding only checks
+  // that a payment is not too LATE -- it has no lower bound at all.
+  //
+  // A baseline set of recent signatures is not sufficient for this: it is a
+  // fixed window, so anything older than its depth is invisible to it. A
+  // slot floor captured before the intent existed is exact and depth-free.
+  if (notBeforeSlot != null) {
+    const slot = Number(transaction.slot);
+    if (!Number.isFinite(slot)) return { ok: false, reason: 'no_slot' };
+    if (slot <= Number(notBeforeSlot)) return { ok: false, reason: 'predates_intent' };
+  }
 
   // 1. The registered payer must have signed.
   const keys = transaction.transaction?.message?.accountKeys ?? [];

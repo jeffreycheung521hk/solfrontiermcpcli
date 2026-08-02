@@ -71,6 +71,16 @@ const RETRYABLE_CONFIRM_STATUSES = new Set([
 // search at the cutoff is how funds get transferred with nothing recorded.
 const DEFAULT_RECONCILE_MS = 90_000;
 
+// One depth for both the baseline and the search. They were 25 and 100, so a
+// pre-run transaction ranked 26th or later escaped the baseline and could be
+// replayed against a new intent carrying the same deterministic memo.
+const SIGNATURE_SCAN_LIMIT = 100;
+
+// Once an exact payment is proven, confirming it is not optional. The first
+// attempt is unconditional; only retries are bounded, by this budget measured
+// from the moment of proof rather than by the reconciliation deadline.
+const CONFIRM_RETRY_MS = 60_000;
+
 export function validate(flags) {
   const amount = flags.amount;
   if (!amount || toRawAmount(amount, 6) === null) {
@@ -152,15 +162,25 @@ export async function run({ config, flags, verbose }) {
 
   return withSession(config, async (session) => {
     // ---- baseline: capture BEFORE finalize -----------------------------
-    // Everything already on chain is disqualified from being "this run's"
-    // funding. Without this, a previous transaction carrying an identical
-    // memo (identical parameters produce an identical intent id) could be
-    // mistaken for new money.
+    // Everything already on chain is disqualified from being this run's
+    // funding. Intent ids are deterministic from (threshold_bps, amount_raw),
+    // so re-running the same parameters produces the same memo, and an old
+    // payment would otherwise satisfy a new intent -- the server checks only
+    // that a payment is not too LATE, never that it is not too OLD.
+    //
+    // The slot floor is the real defence. A signature baseline is a fixed
+    // window: it was 25 entries deep while the search scanned 100, so an
+    // identical pre-run transaction ranked 26th or later was never excluded.
+    // Widening the window only moves that edge. A slot captured before the
+    // intent exists is exact regardless of history depth, and the baseline
+    // remains as a cheap second line, now at the same depth as the search.
     let baseline = new Set();
+    let notBeforeSlot = null;
     if (rpc) {
-      const existing = await rpc.getSignaturesForAddress(RAIL.controlled_usdc_ata, 25);
+      notBeforeSlot = await rpc.getSlot('confirmed');
+      const existing = await rpc.getSignaturesForAddress(RAIL.controlled_usdc_ata, SIGNATURE_SCAN_LIMIT);
       baseline = new Set(existing.map((s) => s.signature));
-      record('baseline.captured', { count: baseline.size });
+      record('baseline.captured', { count: baseline.size, notBeforeSlot });
     }
 
     // ---- propose (pure) --------------------------------------------------
@@ -233,6 +253,7 @@ export async function run({ config, flags, verbose }) {
       controlledAta: RAIL.controlled_usdc_ata,
       mint: finalized.body.funding?.mint,
       decimals: Number(finalized.body.funding?.decimals ?? 6),
+      notBeforeSlot,
     };
 
     const seen = new Set();
@@ -252,7 +273,7 @@ export async function run({ config, flags, verbose }) {
         info(style.dim('Still searching for an already-broadcast payment so it cannot be lost.'));
       }
       try {
-        const rows = await rpc.getSignaturesForAddress(RAIL.controlled_usdc_ata, 100);
+        const rows = await rpc.getSignaturesForAddress(RAIL.controlled_usdc_ata, SIGNATURE_SCAN_LIMIT);
         const matches = await findFundingMatches({
           rows,
           expected: expectedFunding,
@@ -303,8 +324,14 @@ export async function run({ config, flags, verbose }) {
     //
     // Only ever this one signature. A retry re-sends the same proven payment;
     // it never looks for another and never causes a second transfer.
+    // The first attempt is UNCONDITIONAL. Previously the loop was gated on
+    // the reconciliation deadline, so a payment proven just as that deadline
+    // passed produced zero confirm calls -- money on chain, nothing recorded,
+    // which is the exact failure this whole section exists to prevent. Only
+    // retries are bounded, by their own budget measured from the proof.
     let confirmation = null;
-    for (let attempt = 1; attempt <= 10 && Date.now() < reconcileUntil; attempt++) {
+    const confirmRetryUntil = Date.now() + CONFIRM_RETRY_MS;
+    for (let attempt = 1; attempt <= 10; attempt++) {
       confirmation = await session.callTool('confirm_funding', {
         intent_id: intentId,
         tx_signature: fundingSignature,
@@ -313,6 +340,7 @@ export async function run({ config, flags, verbose }) {
       record('confirm.attempt', { attempt, status });
       if (status === 'budget_reserved') break;
       if (status && !RETRYABLE_CONFIRM_STATUSES.has(status)) break;
+      if (Date.now() >= confirmRetryUntil) break;
       await sleep(2000);
     }
 

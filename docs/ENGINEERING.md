@@ -59,7 +59,8 @@ knows what a "quote" is.
 | `doctor` | live run: correct GO with real chain data; NO-GO on impossible threshold | **proven** |
 | `audit` | live run against the published acceptance record: 13 claims re-derived | **proven** |
 | `flow` — preflight, propose, finalize, URL | dry-run, plus a live mainnet run on 2026-08-02 | **proven** |
-| Exact funding proof (selection → fetch → validation) | 23 tests driving the real captured 2026-08-02 payload | **proven offline** |
+| Exact funding proof (selection → fetch → validation) | 28 tests driving the real captured 2026-08-02 payload | **proven offline** |
+| Replay defence (a payment older than the intent) | slot floor; 5 tests, including one the signature baseline cannot catch | **proven offline** |
 | Secrets withheld from spawned binaries; output redaction | 9 tests | **proven** |
 | `flow` — signing cutoff vs reconciliation window | written in response to the incident below; **no fake-clock tests yet** | **UNPROVEN** |
 | End-to-end orchestration (candidate → confirm → `budget_reserved` → executor lease) | **none** | **UNPROVEN** |
@@ -81,14 +82,23 @@ a 13:32:13Z deadline — 159 seconds inside the window. The client counted down
 to zero and reported that no funding transaction had appeared. The money had
 left the wallet; the database still said `funding_required`.
 
-**Root cause, in two parts.** Detection accepted "any successful signature on
-the destination ATA after the baseline" without fetching the transaction or
-checking anything about it. Separately, a prefilter compared
-`getSignaturesForAddress`'s `memo` field for exact equality — but that field
-is a *summary*, formatted `"[byte_len] memo"`, with multiple memos joined by
-`"; "`. The one correct transaction failed that comparison, was added to a
-seen-signature blacklist, and was never passed to the verifier for the
-remaining 159 seconds.
+**Root cause.** The run was driven by the PowerShell demo harness
+(`Demo.ps1 -Mode Live`), not by the `flow` command. Its polling loop carried
+a prefilter that compared `getSignaturesForAddress`'s `memo` field for exact
+equality — but that field is a *summary*, formatted `"[byte_len] memo"`, with
+multiple memos joined by `"; "`. The one correct transaction failed that
+comparison, was added to a seen-signature blacklist, and was never passed to
+the verifier for the remaining 159 seconds. The verifier itself would have
+accepted it: it read the memo as a substring of the logs.
+
+**A second, larger defect was found while fixing the first.** The `flow`
+command — the product, not the harness — had never been used for a live run,
+and its detection was worse: it accepted *any* successful signature on the
+destination ATA after the baseline, without fetching the transaction or
+checking memo, payer, amount, accounts or balances at all. The server would
+have rejected a wrong signature, but `flow` had already stopped scanning, so
+the real payment would never have been found. Had the demo been driven by
+`flow` instead, the same money would have been lost by a different route.
 
 **Why the tests did not catch it.** Fifteen regressions existed for the
 memo comparison. All of them handed a transaction straight to the validator,
@@ -112,6 +122,26 @@ deadline: past it nothing new may be approved. The **reconciliation window**
 keeps searching for a further 90 seconds, because a payment can be on chain
 and on time while the RPC is slow to list it, and stopping at the cutoff is
 exactly how funds get transferred with nothing recorded.
+
+**Two further boundaries were found in that fix, before it was ever run.**
+
+A *replay* boundary: intent ids are deterministic from
+`(threshold_bps, amount_raw)`, so re-running identical parameters produces an
+identical memo, and `confirm_funding` checks only that a payment is not too
+late — it has no lower bound. The signature baseline that was supposed to
+exclude old payments was 25 entries deep while the search scanned 100, so an
+identical pre-run transaction ranked 26th or later was invisible to it and
+would have passed the exact proof. Deepening the window only moves that edge;
+the fix is a **slot floor** captured before the intent exists, which is exact
+regardless of history depth. The baseline remains as a cheap second line, now
+at the same depth as the search.
+
+A *confirmation* boundary: the confirm loop was gated on the reconciliation
+deadline, so a payment proven just as that deadline passed produced **zero**
+`confirm_funding` calls — money on chain, nothing recorded, which is the very
+failure the reconciliation window exists to prevent. The first attempt is now
+unconditional; only retries are bounded, by their own budget measured from
+the moment of proof.
 
 **Disposition of the funds.** Two amounts of 0.2 USDC now sit in the
 controlled ATA and cannot be executed, both because their funding deadline
