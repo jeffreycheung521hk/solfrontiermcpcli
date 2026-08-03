@@ -26,7 +26,12 @@ import { SolanaRpc } from '../solana/rpc.mjs';
 import { readReserveSnapshot } from '../solana/solend.mjs';
 import { RAIL, draftParams, toRawAmount } from './intent.mjs';
 import { findFundingMatches } from '../solana/funding-proof.mjs';
-import { windowState, shouldAttemptConfirm, describeOutcome } from './funding-window.mjs';
+import {
+  windowState,
+  shouldAttemptConfirm,
+  describeOutcome,
+  REQUIRED_POST_SIGNING_MS,
+} from './funding-window.mjs';
 import { emitResult, info, event, style, isJsonMode } from '../cli/output.mjs';
 import { EXIT, UsageError, CliError } from '../cli/exit-codes.mjs';
 
@@ -219,7 +224,14 @@ export async function run({ config, flags, verbose }) {
     if (finalized.body.signing_page_url) info(finalized.body.signing_page_url);
     info(`memo    claw:w5h:${intentId}:${finalized.body.rule_hash}`);
     info(`amount  ${finalized.body.funding?.amount_raw} raw units`);
-    info(`window  ${Math.round((expiresAtMs - Date.now()) / 1000)}s`);
+    // The number a human should pace against is the approval cutoff, not the
+    // funding deadline. Signing at the deadline produces a payment that is
+    // on time and still unexecutable.
+    info(`approve within  ${Math.round(windowState({
+      now: Date.now(), expiresAtMs, reconcileMs: opts.reconcileMs,
+    }).msUntilApprovalCutoff / 1000)}s`);
+    info(style.dim(`(funding deadline is ${Math.round((expiresAtMs - Date.now()) / 1000)}s away; the ` +
+      `${Math.round(REQUIRED_POST_SIGNING_MS / 1000)}s difference is reserve freshness, confirmation and the executor)`));
     info(style.bold('════════════════'));
     info('');
 
@@ -261,6 +273,7 @@ export async function run({ config, flags, verbose }) {
     let fundingSignature = null;
     let fundingProof = null;
     let lastReport = 0;
+    let warnedApproval = false;
     let warnedCutoff = false;
     // Deadline arithmetic lives in funding-window.mjs, where it is tested
     // against a fake clock. Both previous versions of this logic were wrong
@@ -269,13 +282,23 @@ export async function run({ config, flags, verbose }) {
       windowState({ now, expiresAtMs, reconcileMs: opts.reconcileMs });
 
     while (windowAt().keepSearching) {
-      const { pastCutoff } = windowAt();
+      const { pastCutoff, maySign, inGracePeriod } = windowAt();
+      // The approval cutoff comes FIRST and is the one a human must obey.
+      // Approving after it produces a payment that can be perfectly on time
+      // and still unexecutable, because nothing downstream has time to run.
+      if (!maySign && !warnedApproval) {
+        warnedApproval = true;
+        record('detect.approval_cutoff_passed', { requiredPostSigningMs: REQUIRED_POST_SIGNING_MS });
+        info('');
+        info(style.red('APPROVAL CUTOFF PASSED. Do not approve in the wallet now.'));
+        info(style.dim('Too little time remains for reserve freshness, confirmation and the executor.'));
+        info(style.dim('Any payment already broadcast is still being searched for.'));
+      }
+      if (inGracePeriod) { /* still searching for an already-broadcast payment */ }
       if (pastCutoff && !warnedCutoff) {
         warnedCutoff = true;
         record('detect.cutoff_passed', {});
-        info('');
-        info(style.yellow('SIGNING CUTOFF PASSED. Do not approve anything now.'));
-        info(style.dim('Still searching for an already-broadcast payment so it cannot be lost.'));
+        info(style.dim('Funding deadline reached; reconciliation only.'));
       }
       try {
         const rows = await rpc.getSignaturesForAddress(RAIL.controlled_usdc_ata, SIGNATURE_SCAN_LIMIT);
@@ -299,11 +322,13 @@ export async function run({ config, flags, verbose }) {
       } catch (err) {
         record('detect.rpc_hiccup', { message: err.message });
       }
-      if (!pastCutoff) {
-        const left = Math.round((expiresAtMs - Date.now()) / 1000);
+      if (maySign) {
+        // Count down to the APPROVAL cutoff, not the funding deadline: the
+        // latter is not the number a human should be pacing against.
+        const left = Math.round(windowAt().msUntilApprovalCutoff / 1000);
         if (left !== lastReport && left % 15 === 0) {
           lastReport = left;
-          info(style.dim(`waiting for the exact payment… ${left}s left to sign`));
+          info(style.dim(`waiting for the exact payment… ${left}s left to approve safely`));
         }
       }
       await sleep(opts.pollMs);
@@ -368,10 +393,9 @@ export async function run({ config, flags, verbose }) {
       now: Date.now(),
       expiresAtMs,
     });
-    const ok = outcome.ok;
-    const executable = outcome.executable;
+    const { recorded, executable, runSuccess } = outcome;
     const secondsLeft = Math.round((expiresAtMs - Date.now()) / 1000);
-    record(ok ? 'confirm.ok' : 'confirm.failed', { secondsLeft, executable, label: outcome.label });
+    record(outcome.event, { secondsLeft, recorded, executable, label: outcome.label });
 
     if (isJsonMode()) {
       emitResult({
@@ -380,22 +404,29 @@ export async function run({ config, flags, verbose }) {
         proof: fundingProof,
         confirm: confirmation?.body,
         secondsLeft,
+        recorded,
         executable,
+        runSuccess,
+        outcome: outcome.label,
         timeline,
       });
     } else {
       emitResult(confirmation?.body ?? { status: 'unknown' });
       info('');
-      if (executable) {
+      if (runSuccess) {
         info(`${style.green('funded')} — ${secondsLeft}s of budget left. The executor should lease within ~5s.`);
-      } else if (ok) {
-        info(style.yellow('funded, but past the funding deadline: the executor cannot lease this intent.'));
-        info(style.dim('Record it as budget_reserved (expired, unexecutable, manual reconciliation required).'));
+      } else if (recorded) {
+        info(style.red('funded, but past the funding deadline: the executor cannot lease this intent.'));
+        info(style.dim(`Recorded as ${outcome.note}.`));
+        info(style.dim(`Signature ${fundingSignature} — reconcile by hand, do not rerun.`));
       } else {
         info(style.red('confirm_funding did not reach budget_reserved; inspect the result above'));
         info(style.dim(`The payment is on chain as ${fundingSignature} — reconcile by hand, do not rerun.`));
       }
     }
-    return ok ? EXIT.OK : EXIT.FAILED;
+    // Funds that can never be leased are a failed run, however tidy the
+    // bookkeeping. Exiting 0 here would show automation a green light over
+    // permanently stranded money.
+    return runSuccess ? EXIT.OK : EXIT.FAILED;
   }, { verbose });
 }

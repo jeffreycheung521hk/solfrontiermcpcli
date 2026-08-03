@@ -133,14 +133,20 @@ describe('funding orchestration, end to end', () => {
         flowFlags: ['--reconcile-ms', '20000'],
       });
       assert.equal(r.body?.confirm?.status, 'budget_reserved', `stderr: ${r.stderr}`);
-      // Confirmed, but the deadline has passed: reserved and unexecutable.
-      // Reported as such rather than as a plain success -- this is exactly
-      // the state both stranded amounts are in.
+      // Recorded -- the chain and the ledger must agree -- but the deadline
+      // has passed, so the run did NOT succeed. This is exactly the state
+      // both stranded amounts are in.
+      assert.equal(r.body.recorded, true);
       assert.equal(r.body.executable, false);
+      assert.equal(r.body.runSuccess, false);
+      // A non-zero exit is the part automation actually reads. Exiting 0
+      // here would show a green light over permanently stranded money.
+      assert.notEqual(r.code, 0, 'an unexecutable outcome must not exit 0');
       // --quiet suppresses the human commentary, so assert on the structured
       // event stream, which is what an audit would read anyway.
       assert.match(r.stderr, /"type":"detect\.cutoff_passed"/);
-      assert.match(r.stderr, /"label":"budget_reserved_expired"/);
+      assert.match(r.stderr, /"type":"confirm\.recorded_but_expired"/);
+      assert.ok(!r.stderr.includes('"type":"confirm.ok"'), 'must not emit a success event');
     } finally {
       await rpc.close();
     }

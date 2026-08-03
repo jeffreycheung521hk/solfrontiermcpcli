@@ -8,25 +8,75 @@
 // are what gets tested -- with time as a parameter, never Date.now().
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { windowState, shouldAttemptConfirm, describeOutcome } from '../src/commands/funding-window.mjs';
+import {
+  windowState,
+  shouldAttemptConfirm,
+  describeOutcome,
+  REQUIRED_POST_SIGNING_MS,
+  POST_SIGNING_BUDGET_MS,
+} from '../src/commands/funding-window.mjs';
 
 const CUTOFF = 1_000_000;
 const RECONCILE = 90_000;
 const RETRYABLE = new Set(['pending', 'pending_confirmation', 'not_yet_confirmed', 'funding_submitted', 'rpc_error']);
 const w = (now) => windowState({ now, expiresAtMs: CUTOFF, reconcileMs: RECONCILE });
+const APPROVAL = CUTOFF - REQUIRED_POST_SIGNING_MS;
 
-describe('signing cutoff', () => {
-  test('signing is allowed right up to the cutoff', () => {
-    assert.equal(w(CUTOFF - 1).maySign, true);
+describe('the approval cutoff is earlier than the funding deadline', () => {
+  // Both stranded amounts were paid on time and were still unexecutable,
+  // because nothing downstream had time left to run. Signing at the funding
+  // deadline is signing into a window that has already closed.
+  test('the post-signing budget is derived from its parts, not chosen', () => {
+    const sum = POST_SIGNING_BUDGET_MS.reserveRefresh
+      + POST_SIGNING_BUDGET_MS.rpcAndConfirm
+      + POST_SIGNING_BUDGET_MS.executorCycle;
+    assert.equal(REQUIRED_POST_SIGNING_MS, sum);
   });
 
-  test('signing stops exactly at the cutoff, not a millisecond later', () => {
-    assert.equal(w(CUTOFF).maySign, false);
-    assert.equal(w(CUTOFF).pastCutoff, true);
+  test('the budget is at least the 120s floor set after the incident', () => {
+    assert.ok(REQUIRED_POST_SIGNING_MS >= 120_000, `budget is only ${REQUIRED_POST_SIGNING_MS}ms`);
   });
 
-  test('countdown never goes negative', () => {
+  test('in a 180s window a human has roughly the first 60s', () => {
+    const expires = 180_000;
+    const s = windowState({ now: 0, expiresAtMs: expires, reconcileMs: RECONCILE });
+    assert.equal(s.msUntilApprovalCutoff, expires - REQUIRED_POST_SIGNING_MS);
+    assert.ok(s.msUntilApprovalCutoff <= 60_000);
+  });
+
+  test('signing is allowed right up to the approval cutoff', () => {
+    assert.equal(w(APPROVAL - 1).maySign, true);
+  });
+
+  test('signing stops at the approval cutoff, long before the deadline', () => {
+    const s = w(APPROVAL);
+    assert.equal(s.maySign, false);
+    assert.equal(s.pastCutoff, false, 'the funding deadline has NOT passed yet');
+    assert.equal(s.inGracePeriod, true);
+  });
+
+  test('the old behaviour is gone: signing one millisecond before expiry is refused', () => {
+    assert.equal(w(CUTOFF - 1).maySign, false);
+  });
+
+  test('an already-broadcast payment is still searched for during the grace period', () => {
+    const s = w(CUTOFF - 1);
+    assert.equal(s.maySign, false);
+    assert.equal(s.keepSearching, true);
+  });
+
+  test('countdowns never go negative', () => {
     assert.equal(w(CUTOFF + 5000).msUntilCutoff, 0);
+    assert.equal(w(CUTOFF).msUntilApprovalCutoff, 0);
+  });
+});
+
+describe('the funding deadline is still the hard boundary', () => {
+  test('past it, nothing may be signed and the deadline is flagged', () => {
+    const s = w(CUTOFF);
+    assert.equal(s.maySign, false);
+    assert.equal(s.pastCutoff, true);
+    assert.equal(s.inGracePeriod, false);
   });
 });
 
@@ -113,26 +163,37 @@ describe('confirmation is not optional once a payment is proven', () => {
   });
 });
 
-describe('outcome is not reported as success when the funds cannot move', () => {
-  test('confirmed before the deadline is executable', () => {
+describe('recording a payment is not the same as the run succeeding', () => {
+  test('confirmed before the deadline is recorded, executable and a success', () => {
     const o = describeOutcome({ confirmStatus: 'budget_reserved', now: CUTOFF - 1, expiresAtMs: CUTOFF });
-    assert.deepEqual([o.ok, o.executable], [true, true]);
+    assert.deepEqual([o.recorded, o.executable, o.runSuccess], [true, true, true]);
+    assert.equal(o.event, 'confirm.ok');
   });
 
-  test('confirmed at or after the deadline is reserved but unexecutable', () => {
-    // This is the state both stranded amounts are in. Reporting it as a
-    // plain success is how a run gets called green while the money is stuck.
+  test('confirmed at or after the deadline is recorded but NOT a success', () => {
+    // The state both stranded amounts are in. It must be recorded -- the
+    // chain and the ledger have to agree -- but a run that leaves money
+    // permanently unusable did not succeed, and automation must see that.
     const o = describeOutcome({ confirmStatus: 'budget_reserved', now: CUTOFF, expiresAtMs: CUTOFF });
-    assert.equal(o.ok, true);
+    assert.equal(o.recorded, true, 'the payment must still be recorded');
     assert.equal(o.executable, false);
+    assert.equal(o.runSuccess, false, 'stranded funds are not a successful run');
     assert.match(o.note, /manual reconciliation required/);
   });
 
-  test('anything other than budget_reserved is not ok', () => {
+  test('the expired case is not labelled as a success in the event stream', () => {
+    const o = describeOutcome({ confirmStatus: 'budget_reserved', now: CUTOFF, expiresAtMs: CUTOFF });
+    assert.notEqual(o.event, 'confirm.ok', 'an audit must not see a success marker over stranded funds');
+    assert.equal(o.event, 'confirm.recorded_but_expired');
+  });
+
+  test('anything other than budget_reserved is neither recorded nor a success', () => {
     for (const status of ['pending', 'invalid_funding', undefined, null]) {
       const o = describeOutcome({ confirmStatus: status, now: 0, expiresAtMs: CUTOFF });
-      assert.equal(o.ok, false, `status ${status}`);
+      assert.equal(o.recorded, false, `status ${status}`);
+      assert.equal(o.runSuccess, false);
       assert.equal(o.executable, false);
+      assert.equal(o.event, 'confirm.failed');
     }
   });
 });

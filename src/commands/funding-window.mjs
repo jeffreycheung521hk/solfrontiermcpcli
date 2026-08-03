@@ -10,25 +10,62 @@
 // Every function here takes `now` explicitly. Nothing calls Date.now().
 
 /**
- * @param {object} p
- * @param {number} p.now              current epoch ms
- * @param {number} p.expiresAtMs      funding deadline = signing cutoff
- * @param {number} p.reconcileMs      how long to keep searching afterwards
+ * What has to happen AFTER a payment is signed, before the executor can take
+ * a lease. Signing with less than the sum of these left is signing into a
+ * window that has already closed — the payment lands on time and is still
+ * unexecutable, which is precisely how both stranded amounts happened.
+ *
+ * Derived, not chosen. Each figure is measured or pinned elsewhere:
  */
-export function windowState({ now, expiresAtMs, reconcileMs }) {
+export const POST_SIGNING_BUDGET_MS = {
+  // Solend reserve freshness. Measured 2026-08-01: fresh for ~6.4s out of
+  // roughly every 60s, so a full refresh cycle is the honest worst case.
+  reserveRefresh: 60_000,
+  // RPC visibility plus one confirm round trip, at the CLI's default
+  // per-request timeout.
+  rpcAndConfirm: 20_000,
+  // Executor scan interval, final revalidation, CAS, simulation, policy,
+  // signing and broadcast.
+  executorCycle: 40_000,
+};
+
+/** Total time that must remain after signing. 120s at present. */
+export const REQUIRED_POST_SIGNING_MS = Object.values(POST_SIGNING_BUDGET_MS).reduce((a, b) => a + b, 0);
+
+/**
+ * @param {object} p
+ * @param {number} p.now                 current epoch ms
+ * @param {number} p.expiresAtMs         funding deadline (hard, server-side)
+ * @param {number} p.reconcileMs         how long to keep searching afterwards
+ * @param {number} [p.postSigningMs]     time that must remain after signing
+ */
+export function windowState({ now, expiresAtMs, reconcileMs, postSigningMs = REQUIRED_POST_SIGNING_MS }) {
   const reconcileUntil = expiresAtMs + reconcileMs;
   const pastCutoff = now >= expiresAtMs;
+
+  // The approval cutoff is EARLIER than the funding deadline, and it is the
+  // one a human must respect. Treating the funding deadline as the signing
+  // cutoff permits approving a payment one millisecond before expiry: that
+  // payment can be perfectly on time and still unexecutable, because nothing
+  // downstream has any time left to run.
+  const approvalDeadlineMs = expiresAtMs - postSigningMs;
+  const maySign = now < approvalDeadlineMs;
+
   return {
     reconcileUntil,
-    // May the human still approve a payment? Only before the cutoff: a later
-    // payment cannot be leased by the executor, so inviting one would strand
-    // funds by design.
-    maySign: !pastCutoff,
-    // Should we keep looking? Past the cutoff, yes — a payment can be on
+    approvalDeadlineMs,
+    // May a human still approve a payment?
+    maySign,
+    // Past the approval cutoff but before the hard deadline: a payment could
+    // still land in time, so anything already broadcast must still be found
+    // and confirmed. Nothing NEW may be approved.
+    inGracePeriod: !maySign && !pastCutoff,
+    // Should we keep looking? Past the deadline, yes — a payment can be on
     // chain and on time while the RPC is still slow to list it. Abandoning
-    // the search at the cutoff is how money moves with nothing recorded.
+    // the search at the deadline is how money moves with nothing recorded.
     keepSearching: now < reconcileUntil,
     pastCutoff,
+    msUntilApprovalCutoff: Math.max(0, approvalDeadlineMs - now),
     msUntilCutoff: Math.max(0, expiresAtMs - now),
     msUntilReconcileEnd: Math.max(0, reconcileUntil - now),
   };
@@ -51,24 +88,48 @@ export function shouldAttemptConfirm({ attempt, now, provenAt, retryMs, lastStat
 }
 
 /**
- * How a completed run should be described.
+ * How a completed run should be described, and whether it succeeded.
  *
- * `budget_reserved` alone does not mean the intent can execute: the executor
- * needs the funding deadline still ahead of it to take a lease. Conflating
- * the two is how a run gets reported as a success while the funds are
- * permanently stuck.
+ * Two different questions, deliberately not merged:
+ *
+ *   recorded    did the database record the payment? Money that reached the
+ *               chain must be recorded even when it is too late to use, or
+ *               the ledger and the chain disagree.
+ *   runSuccess  did the run achieve what it set out to? Funds that can never
+ *               be leased are a failed run, however tidy the bookkeeping.
+ *
+ * Reporting `recorded` as success is how automation sees green while money is
+ * permanently stuck. Both stranded amounts in this project reached
+ * `budget_reserved`; neither can ever execute.
  */
 export function describeOutcome({ confirmStatus, now, expiresAtMs }) {
   if (confirmStatus !== 'budget_reserved') {
-    return { ok: false, executable: false, label: 'not_confirmed' };
+    return {
+      recorded: false,
+      executable: false,
+      runSuccess: false,
+      label: 'not_confirmed',
+      event: 'confirm.failed',
+      note: 'the payment was not recorded; reconcile the signature by hand',
+    };
   }
   if (now >= expiresAtMs) {
     return {
-      ok: true,
+      recorded: true,
       executable: false,
+      runSuccess: false,
       label: 'budget_reserved_expired',
+      // Not "confirm.ok": an audit reading the event stream must not see a
+      // success marker on a run whose funds are stranded.
+      event: 'confirm.recorded_but_expired',
       note: 'budget_reserved (expired, unexecutable, manual reconciliation required)',
     };
   }
-  return { ok: true, executable: true, label: 'budget_reserved_executable' };
+  return {
+    recorded: true,
+    executable: true,
+    runSuccess: true,
+    label: 'budget_reserved_executable',
+    event: 'confirm.ok',
+  };
 }
