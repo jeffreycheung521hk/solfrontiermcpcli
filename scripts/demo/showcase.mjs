@@ -162,6 +162,17 @@ async function main() {
       console.log(c.dim(`\n(4 skipped: ${acceptance} not found)`));
     }
 
+    // ---- 4b. money that came back ----------------------------------------
+    const refunds = path.join(SERVER_REPO, 'docs', 'phase4-refund-acceptance.md');
+    if (existsSync(refunds)) {
+      banner('4b', 'money recovered, re-derived from the ledger', 'funds that stranded were returned, and the chain says so');
+      console.log(c.dim('    Three amounts stranded across three separate failures. All three'));
+      console.log(c.dim('    returned on 2026-08-03, each verified with both balance deltas exact'));
+      console.log(c.dim('    at finalized commitment BEFORE the ledger was marked refunded.'));
+      console.log('');
+      await runCli(['audit', refunds], { label: 'audit (refunds)' });
+    }
+
     // ---- 5. the funding sequence, up to the last safe step ---------------
     banner(5, 'the funding sequence, dry', 'preflight + propose + canonical draft hash, with no database row');
     console.log(c.dim('    Stops before finalize on purpose: finalize writes a row, starts the'));

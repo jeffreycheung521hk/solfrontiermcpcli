@@ -203,14 +203,33 @@ Add a minute for `npm test` if you want the offline suite live.
 
 ## If someone asks "but has it moved real money?"
 
-Answer plainly: **yes, twice, and both times it went wrong** — once because the
-executor was started after the deadline, once because a memo prefilter compared
-a field the RPC formats as a summary. 0.4 USDC is stranded. Neither can execute.
+Answer plainly: **yes — in both directions, and the failures are the more
+interesting half.**
+
+Three funding attempts stranded money in the controlled ATA: 0.1 USDC on
+2026-07-29 (Phase 2 verified funding only and had no executor), 0.2 USDC on
+2026-08-01 (the executor was started 107 s after the deadline), and 0.2 USDC on
+2026-08-02 (a memo prefilter compared a field the RPC formats as a summary).
+
+On 2026-08-03 **all three were recovered**, through the full gate chain, each
+with both balance deltas verified exact at `finalized` before the ledger was
+touched. Stage 4b re-derives those three transactions from the chain in front
+of the audience. The controlled ATA went 1253487 → 753487 raw: exactly 500000,
+not a lamport more.
+
+The detail worth telling: **the first refund attempt refused to run.** It
+halted on a missing journal and moved nothing. The halt was right in kind — a
+missing journal can mean the record of an already-signed transaction was
+deleted, and re-signing there is how a double refund happens — but the
+reasoning was incomplete, because on a first refund the journal legitimately
+does not exist yet. The fail-closed default caught an error in its own author's
+reasoning rather than letting it through.
 
 Then show them the ledger in [ENGINEERING.md](ENGINEERING.md): 48 defects found
 by auditing every commit, three still live at audit time, and an honest table
 of where the catches came from — human review found most, losing money found
 one, CI found three, and the unit tests found none.
 
-That answer is stronger than a green screenshot, and it is the reason a third
-funding run is currently NO-GO.
+What is still not proven: a funding run that completes end to end. That remains
+the open item, and it is now a survivable experiment rather than a one-way bet,
+because money that strands can be returned.
