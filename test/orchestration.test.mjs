@@ -88,7 +88,16 @@ function revealFrom(nth, rows) {
 }
 
 describe('funding orchestration, end to end', () => {
-  test('a payment listed promptly is proven and confirmed', async () => {
+  // Most tests below need a funding window measured in seconds so they finish
+  // quickly, which is shorter than the 120s approval cutoff -- so they declare
+  // `--post-signing-ms 0` to isolate whichever gate they are actually testing.
+  // The first test deliberately does NOT: it runs the real default end to end.
+  const NO_CUTOFF = ['--post-signing-ms', '0'];
+
+  test('a payment listed promptly is proven and confirmed, at the real cutoff', async () => {
+    // Realistic window and the DERIVED post-signing budget, so the default
+    // configuration is proven rather than only its relaxed variant. It still
+    // finishes in about a second: the payment appears on the second poll.
     const slot = 1000;
     const payment = stagedPayment({ slot: 1010 });
     const rpc = await startFakeRpc({
@@ -99,15 +108,102 @@ describe('funding orchestration, end to end', () => {
     try {
       const r = await runFlow({
         rpcUrl: rpc.url,
-        serverFlags: ['--window-ms', '15000'],
+        serverFlags: ['--window-ms', '200000'],
         flowFlags: ['--reconcile-ms', '3000'],
       });
       assert.equal(r.code, 0, `stderr: ${r.stderr}`);
       assert.equal(r.body.confirm.status, 'budget_reserved');
       assert.equal(r.body.signature, payment.row.signature);
       assert.equal(r.body.executable, true);
+      assert.equal(r.body.runSuccess, true);
       assert.equal(r.body.proof.controlledDelta, '200000');
       assert.equal(r.body.proof.userDelta, '-200000');
+      assert.match(r.stderr, /"type":"confirm\.ok"/);
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('the signing handoff is withheld once the approval cutoff has passed', async () => {
+    // The window is far shorter than the post-signing budget, so there is no
+    // safe moment to sign at all. The URL must never be shown -- on the
+    // terminal or in the JSON. Printing it with a warning beside it would be
+    // handing it over and then asking nicely.
+    const rpc = await startFakeRpc({
+      slot: () => 1000,
+      signatureRows: () => [],
+      transaction: () => null,
+    });
+    try {
+      const r = await runFlow({
+        rpcUrl: rpc.url,
+        serverFlags: ['--window-ms', '5000'],
+        flowFlags: ['--reconcile-ms', '1000'],
+      });
+      assert.notEqual(r.code, 0, 'withholding the handoff is a failed run');
+      assert.equal(r.body?.status, 'handoff_withheld', `stderr: ${r.stderr}`);
+      assert.equal(r.body.reason, 'approval_cutoff_passed');
+      assert.match(r.stderr, /"type":"handoff\.withheld"/);
+      // The whole point: the signable URL is gone from every output channel.
+      const everything = `${r.stdout}\n${r.stderr}`;
+      assert.ok(!everything.includes('#payload='), 'the signing URL must not be emitted anywhere');
+      assert.equal(r.body.finalize.signing_page_url, null);
+      assert.equal(r.body.finalize.funding_actionable, false);
+      // And nothing was searched for, because nothing could have been signed.
+      assert.ok(!r.stderr.includes('"type":"detect.found"'));
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('a payment past the WatchRule SLOT deadline does not exit green', async () => {
+    // Our wall clock says there is plenty of time; the slot clock -- which this
+    // client cannot evaluate for itself -- says the executor can never lease it.
+    // The server's verdict has to win.
+    const payment = stagedPayment({ slot: 1010 });
+    const rpc = await startFakeRpc({
+      slot: () => 1000,
+      signatureRows: revealFrom(2, [payment.row]),
+      transaction: (sig) => (sig === payment.row.signature ? payment.transaction : null),
+    });
+    try {
+      const r = await runFlow({
+        rpcUrl: rpc.url,
+        serverFlags: ['--window-ms', '200000', '--slot-expired'],
+        flowFlags: ['--reconcile-ms', '3000'],
+      });
+      assert.equal(r.body?.confirm?.status, 'budget_reserved', `stderr: ${r.stderr}`);
+      assert.equal(r.body.recorded, true, 'the payment still has to be recorded');
+      assert.equal(r.body.runSuccess, false);
+      assert.notEqual(r.code, 0, 'a passed slot deadline must not exit 0');
+      assert.match(r.stderr, /"type":"confirm\.recorded_but_expired"/);
+      assert.ok(!r.stderr.includes('"type":"confirm.ok"'));
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('a server that omits the slot fields yields unverified, not success', async () => {
+    // expired_at_funding_slot is false when no slot was observed, which is
+    // indistinguishable from a genuine pass. Absence of evidence is not a
+    // green light.
+    const payment = stagedPayment({ slot: 1010 });
+    const rpc = await startFakeRpc({
+      slot: () => 1000,
+      signatureRows: revealFrom(2, [payment.row]),
+      transaction: (sig) => (sig === payment.row.signature ? payment.transaction : null),
+    });
+    try {
+      const r = await runFlow({
+        rpcUrl: rpc.url,
+        serverFlags: ['--window-ms', '200000', '--no-tx-slot'],
+        flowFlags: ['--reconcile-ms', '3000'],
+      });
+      assert.equal(r.body?.confirm?.status, 'budget_reserved', `stderr: ${r.stderr}`);
+      assert.equal(r.body.outcome, 'budget_reserved_unverified');
+      assert.equal(r.body.runSuccess, false);
+      assert.notEqual(r.code, 0);
+      assert.match(r.stderr, /"type":"confirm\.recorded_but_unverified"/);
     } finally {
       await rpc.close();
     }
@@ -130,7 +226,7 @@ describe('funding orchestration, end to end', () => {
       const r = await runFlow({
         rpcUrl: rpc.url,
         serverFlags: ['--window-ms', '1500'],
-        flowFlags: ['--reconcile-ms', '20000'],
+        flowFlags: ['--reconcile-ms', '20000', ...NO_CUTOFF],
       });
       assert.equal(r.body?.confirm?.status, 'budget_reserved', `stderr: ${r.stderr}`);
       // Recorded -- the chain and the ledger must agree -- but the deadline
@@ -169,7 +265,7 @@ describe('funding orchestration, end to end', () => {
       const r = await runFlow({
         rpcUrl: rpc.url,
         serverFlags: ['--window-ms', '1500'],
-        flowFlags: ['--reconcile-ms', '1500'],
+        flowFlags: ['--reconcile-ms', '1500', ...NO_CUTOFF],
       });
       assert.equal(r.code, 1);
       assert.equal(r.body?.status, 'no_signature_detected');
@@ -193,7 +289,7 @@ describe('funding orchestration, end to end', () => {
       const r = await runFlow({
         rpcUrl: rpc.url,
         serverFlags: ['--window-ms', '1500'],
-        flowFlags: ['--reconcile-ms', '1500'],
+        flowFlags: ['--reconcile-ms', '1500', ...NO_CUTOFF],
       });
       assert.equal(r.code, 1, 'an old payment must not satisfy a new intent');
       assert.equal(r.body?.status, 'no_signature_detected');
@@ -216,7 +312,7 @@ describe('funding orchestration, end to end', () => {
       const r = await runFlow({
         rpcUrl: rpc.url,
         serverFlags: ['--confirm-fails', '2', '--window-ms', '15000'],
-        flowFlags: ['--reconcile-ms', '3000'],
+        flowFlags: ['--reconcile-ms', '3000', ...NO_CUTOFF],
       });
       assert.equal(r.body?.confirm?.status, 'budget_reserved', `stderr: ${r.stderr}`);
       assert.equal(r.body.confirm.confirm_call_count, 3, 'should have retried the same signature twice');

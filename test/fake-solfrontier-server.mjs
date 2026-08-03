@@ -80,15 +80,38 @@ function handleCall(id, name, args) {
       const late = has('--late');
       state.status = 'budget_reserved';
       state.signature = args.tx_signature;
+      // Shaped after the real success_response in
+      // bins/solfrontier-mcp/src/funding.rs. A fake that omits fields the
+      // client is supposed to gate on cannot test the gate -- the same lesson
+      // as commit 46ac86e, one layer up.
+      const ruleExpiresSlot = 1480;
+      const txSlot = has('--slot-expired') ? ruleExpiresSlot + 1
+        : has('--no-tx-slot') ? null
+          : 1000;
+      const arrivalMs = late ? state.expiresAtMs + 1000 : state.expiresAtMs - 60_000;
       return reply(id, {
         status: 'budget_reserved',
         intent_id: args.intent_id,
         tx_signature: args.tx_signature,
         amount_raw: '200000',
+        funding_finalized_slot: txSlot,
+        confirmation_level: 'finalized',
+        required_commitment: 'confirmed',
+        funding_row_expires_at_ms: state.expiresAtMs,
+        funding_deadline_basis: 'funding_row.expires_at_ms',
+        funding_arrival_time_ms: arrivalMs,
+        funding_arrival_time_source: 'funding_transaction.blockTime',
         // Lateness comes from the transaction, not from the call time.
         arrived_after_funding_deadline: late,
+        watch_rule: {
+          expires_at_slot: ruleExpiresSlot,
+          funding_transaction_slot: txSlot,
+          // Mirrors the server's `observed_slot.is_some_and(..)`: null slot
+          // yields false, which is why the client must not read it alone.
+          expired_at_funding_slot: txSlot !== null && txSlot >= ruleExpiresSlot,
+          purpose: 'the 480-slot WatchRule deadline determines whether the executor can obtain a lease',
+        },
         late_funding: late ? { note: 'arrived after the deadline; refundable' } : null,
-        confirmation_level: 'finalized',
         confirm_call_count: state.confirmCalls,
       });
     }

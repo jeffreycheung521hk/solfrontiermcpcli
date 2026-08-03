@@ -48,13 +48,18 @@ export const spec = {
     yes: { type: 'boolean' },
     'poll-ms': { type: 'string' },
     'reconcile-ms': { type: 'string' },
+    'post-signing-ms': { type: 'string' },
   },
   notes: [
     'Start the executor (`solfrontier-mcp watch --execute`) BEFORE this command.',
     'On an empty database it idles safely on "rows": [] and can wait indefinitely.',
     'A payment is accepted only on exact proof: memo, payer signature, transferChecked',
     'fields and both balance deltas, bound to the pinned token accounts by index.',
-    'After the signing cutoff the search continues for --reconcile-ms (default 90s),',
+    'The signing handoff is WITHHELD unless --post-signing-ms (default 120s) remains',
+    'before the funding deadline; a payment approved later is on time and still',
+    'unexecutable. That budget is a pinned assumption about this rail, not a proven',
+    'bound, so it is declarable -- but lowering it lowers the safety argument with it.',
+    'After the funding deadline the search continues for --reconcile-ms (default 90s),',
     'so a payment the RPC lists late is still recorded rather than lost.',
   ],
 };
@@ -108,7 +113,20 @@ export function validate(flags) {
   if (!Number.isInteger(reconcileMs) || reconcileMs < 0 || reconcileMs > 600_000) {
     throw new UsageError('--reconcile-ms must be an integer 0..600000');
   }
-  return { amount, thresholdBps, userWallet, pollMs, reconcileMs, dryRun: Boolean(flags['dry-run']) };
+  // The post-signing budget is an assumption about this rail, not a law, so it
+  // is declarable. It is NOT a convenience knob: lowering it lowers the safety
+  // argument, so an override is announced in the event stream and warned about
+  // on the terminal rather than quietly honoured.
+  const postSigningOverridden = flags['post-signing-ms'] !== undefined;
+  const postSigningMs = Number(flags['post-signing-ms'] ?? REQUIRED_POST_SIGNING_MS);
+  if (!Number.isInteger(postSigningMs) || postSigningMs < 0 || postSigningMs > 600_000) {
+    throw new UsageError('--post-signing-ms must be an integer 0..600000');
+  }
+  return {
+    amount, thresholdBps, userWallet, pollMs, reconcileMs,
+    postSigningMs, postSigningOverridden,
+    dryRun: Boolean(flags['dry-run']),
+  };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -219,6 +237,55 @@ export async function run({ config, flags, verbose }) {
     const expiresAtMs = finalized.body.funding?.expires_at_ms;
     record('finalize.ok', { intentId, expiresAtMs });
 
+    // ---- hand off to the human, but only if there is time to use it ------
+    //
+    // MECHANICAL, not advisory. Past the approval cutoff the signing URL is
+    // WITHHELD rather than printed with a warning beside it. A URL that has
+    // been displayed has been handed over, and no amount of red text unhands
+    // it; the only enforcement a client can actually perform is not to emit it.
+    //
+    // The server withholds its own handoff too, but at the funding DEADLINE —
+    // 120 s too late to help. In the interval between the two it will return a
+    // perfectly signable page, so the decision has to be made here.
+    //
+    // Withholding is the safe failure: nothing is signed, no money moves, and
+    // the intent expires unfunded.
+    if (opts.postSigningOverridden) {
+      record('handoff.post_signing_budget_overridden', {
+        derivedMs: REQUIRED_POST_SIGNING_MS, declaredMs: opts.postSigningMs,
+      });
+      if (opts.postSigningMs < REQUIRED_POST_SIGNING_MS) {
+        info(style.red(`post-signing budget lowered to ${opts.postSigningMs}ms `
+          + `(derived value is ${REQUIRED_POST_SIGNING_MS}ms).`));
+        info(style.dim('The approval cutoff moves later by the difference; so does the risk.'));
+      }
+    }
+    const handoff = windowState({
+      now: Date.now(), expiresAtMs, reconcileMs: opts.reconcileMs, postSigningMs: opts.postSigningMs,
+    });
+    if (!handoff.maySign) {
+      record('handoff.withheld', {
+        msUntilCutoff: handoff.msUntilCutoff,
+        requiredPostSigningMs: opts.postSigningMs,
+        pastFundingDeadline: handoff.pastCutoff,
+      });
+      // Redact in the machine-readable output too. Printing a refusal while
+      // returning the URL in JSON would be theatre.
+      const redacted = { ...finalized.body, signing_page_url: null, signing: null, funding_actionable: false };
+      emitResult({
+        intentId, status: 'handoff_withheld', finalize: redacted,
+        reason: 'approval_cutoff_passed', recorded: false, runSuccess: false, timeline,
+      });
+      info('');
+      info(style.red('SIGNING HANDOFF WITHHELD — the approval cutoff has already passed.'));
+      info(style.dim(`Only ${Math.round(handoff.msUntilCutoff / 1000)}s remain before the funding deadline, and `
+        + `${Math.round(opts.postSigningMs / 1000)}s are needed after signing for reserve freshness, `
+        + 'confirmation and the executor.'));
+      info(style.dim('A payment made now would be on time and still unexecutable. The URL is not shown.'));
+      info(style.dim(`Intent ${intentId} will expire unfunded. Nothing was signed and no money moved.`));
+      return EXIT.FAILED;
+    }
+
     info('');
     info(style.bold('═══ SIGN NOW ═══'));
     if (finalized.body.signing_page_url) info(finalized.body.signing_page_url);
@@ -227,11 +294,9 @@ export async function run({ config, flags, verbose }) {
     // The number a human should pace against is the approval cutoff, not the
     // funding deadline. Signing at the deadline produces a payment that is
     // on time and still unexecutable.
-    info(`approve within  ${Math.round(windowState({
-      now: Date.now(), expiresAtMs, reconcileMs: opts.reconcileMs,
-    }).msUntilApprovalCutoff / 1000)}s`);
-    info(style.dim(`(funding deadline is ${Math.round((expiresAtMs - Date.now()) / 1000)}s away; the ` +
-      `${Math.round(REQUIRED_POST_SIGNING_MS / 1000)}s difference is reserve freshness, confirmation and the executor)`));
+    info(`approve within  ${Math.round(handoff.msUntilApprovalCutoff / 1000)}s`);
+    info(style.dim(`(funding deadline is ${Math.round(handoff.msUntilCutoff / 1000)}s away; the ` +
+      `${Math.round(opts.postSigningMs / 1000)}s difference is reserve freshness, confirmation and the executor)`));
     info(style.bold('════════════════'));
     info('');
 
@@ -279,7 +344,7 @@ export async function run({ config, flags, verbose }) {
     // against a fake clock. Both previous versions of this logic were wrong
     // at the boundary and both looked correct running against a real one.
     const windowAt = (now = Date.now()) =>
-      windowState({ now, expiresAtMs, reconcileMs: opts.reconcileMs });
+      windowState({ now, expiresAtMs, reconcileMs: opts.reconcileMs, postSigningMs: opts.postSigningMs });
 
     while (windowAt().keepSearching) {
       const { pastCutoff, maySign, inGracePeriod } = windowAt();
@@ -288,10 +353,19 @@ export async function run({ config, flags, verbose }) {
       // and still unexecutable, because nothing downstream has time to run.
       if (!maySign && !warnedApproval) {
         warnedApproval = true;
-        record('detect.approval_cutoff_passed', { requiredPostSigningMs: REQUIRED_POST_SIGNING_MS });
+        record('detect.approval_cutoff_passed', {
+          requiredPostSigningMs: opts.postSigningMs,
+          enforcement: 'advisory_only_url_already_issued',
+        });
         info('');
-        info(style.red('APPROVAL CUTOFF PASSED. Do not approve in the wallet now.'));
+        info(style.red('APPROVAL CUTOFF PASSED — the signing handoff is now void.'));
         info(style.dim('Too little time remains for reserve freshness, confirmation and the executor.'));
+        // Honest about the limit of this particular check. Before the handoff
+        // the client can withhold the URL, which is enforcement. Afterwards the
+        // URL is in the operator's hands and this is only a message; the
+        // mechanical block at that point has to live in the signing page, which
+        // is why the page guard re-checks the same cutoff at the wallet call.
+        info(style.dim('This message cannot revoke a URL already issued — do not approve in the wallet.'));
         info(style.dim('Any payment already broadcast is still being searched for.'));
       }
       if (inGracePeriod) { /* still searching for an already-broadcast payment */ }
@@ -385,17 +459,31 @@ export async function run({ config, flags, verbose }) {
       await sleep(2000);
     }
 
-    // `budget_reserved` alone is not success: the executor still needs the
-    // funding deadline ahead of it to take a lease. Both stranded amounts
-    // from this project reached budget_reserved and neither can ever execute.
+    // `budget_reserved` alone is not success: the executor still needs both
+    // deadlines ahead of it to take a lease. Both stranded amounts from this
+    // project reached budget_reserved and neither can ever execute.
+    //
+    // The whole response is handed over, not just the status. Our clock is the
+    // weakest signal available and it cannot see the WatchRule's SLOT deadline
+    // at all; the server reports both, and any authoritative sign of lateness
+    // wins over a local clock that thinks everything is fine.
     const outcome = describeOutcome({
       confirmStatus: confirmation?.body?.status,
       now: Date.now(),
       expiresAtMs,
+      confirmBody: confirmation?.body,
     });
     const { recorded, executable, runSuccess } = outcome;
     const secondsLeft = Math.round((expiresAtMs - Date.now()) / 1000);
-    record(outcome.event, { secondsLeft, recorded, executable, label: outcome.label });
+    record(outcome.event, {
+      secondsLeft, recorded, executable, label: outcome.label,
+      authority: outcome.authority, signals: outcome.signals,
+    });
+    if (outcome.disagreements?.length) {
+      record('confirm.server_field_disagreement', { fields: outcome.disagreements });
+      info(style.red(`server expiry fields disagree with their own inputs: ${outcome.disagreements.join(', ')}`));
+      info(style.dim('Treated as expired. This is a server-side inconsistency worth reporting.'));
+    }
 
     if (isJsonMode()) {
       emitResult({
@@ -415,9 +503,14 @@ export async function run({ config, flags, verbose }) {
       info('');
       if (runSuccess) {
         info(`${style.green('funded')} — ${secondsLeft}s of budget left. The executor should lease within ~5s.`);
+      } else if (recorded && outcome.label === 'budget_reserved_unverified') {
+        info(style.red('funded and recorded, but NOT provably leasable.'));
+        info(style.dim(`${outcome.note}.`));
+        info(style.dim(`Signature ${fundingSignature} — verify by hand before assuming it will execute.`));
       } else if (recorded) {
-        info(style.red('funded, but past the funding deadline: the executor cannot lease this intent.'));
+        info(style.red('funded, but past a deadline: the executor cannot lease this intent.'));
         info(style.dim(`Recorded as ${outcome.note}.`));
+        if (outcome.signals?.length) info(style.dim(`Expiry signals: ${outcome.signals.join(', ')}.`));
         info(style.dim(`Signature ${fundingSignature} — reconcile by hand, do not rerun.`));
       } else {
         info(style.red('confirm_funding did not reach budget_reserved; inspect the result above'));

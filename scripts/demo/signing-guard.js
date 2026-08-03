@@ -2,9 +2,18 @@
 
 // Demo-only safety guard layered over the reviewed signing page. It does not
 // build or send a transaction. It pins the URL payload, requires a live
-// executor heartbeat, closes signing at T-60, and makes the first Phantom
-// submission attempt a persistent one-shot boundary across refreshes/tabs.
+// executor heartbeat, closes signing at the approval cutoff, and makes the
+// first Phantom submission attempt a persistent one-shot boundary across
+// refreshes and tabs.
 (() => {
+  // Must equal REQUIRED_POST_SIGNING_MS in src/commands/funding-window.mjs.
+  // A browser file cannot import it, so the agreement is asserted by a test
+  // that reads both. This guard previously used 60000 while the product used
+  // 120000, which meant the page permitted signing for a full minute after the
+  // command line had declared the window closed -- the two halves of one gate
+  // disagreeing about where the gate is.
+  const APPROVAL_CUTOFF_MS = 120000;
+
   const PIN = Object.freeze({
     intentId: "58000000400d0300000000009a62dace",
     amountRaw: "200000",
@@ -21,6 +30,10 @@
   let executorReady = false;
   let sentOrUnknown = false;
   let latchKey = null;
+  // Set by a click the guard has just permitted, cleared by the very next
+  // provider call. It lets the wallet wrapper tell "this is the submission the
+  // click authorised" apart from "something is calling the wallet on its own".
+  let armedForThisAttempt = false;
 
   const signButton = document.getElementById("sign-button");
   const retryButton = document.getElementById("retry-button");
@@ -71,7 +84,7 @@
       funding.instruction_order[0] === "memo" &&
       funding.instruction_order[1] === "transfer_checked" &&
       Number.isSafeInteger(funding?.expires_at_ms) &&
-      funding.expires_at_ms > Date.now() + 60000;
+      funding.expires_at_ms > Date.now() + APPROVAL_CUTOFF_MS;
     if (!exact) throw new Error("payload_pin_mismatch");
     payload = body;
     latchKey = `solfrontier-demo-sent:${funding.memo}`;
@@ -80,7 +93,17 @@
   }
 
   function signingWindowOpen() {
-    return payloadSafe && Date.now() < payload.funding.expires_at_ms - 60000;
+    return payloadSafe && Date.now() < payload.funding.expires_at_ms - APPROVAL_CUTOFF_MS;
+  }
+
+  // One predicate, consulted at every gate: button state, click, and the
+  // wallet call itself. Three checks that could drift apart otherwise.
+  function signingBlockedReason(ignoreLatch) {
+    if (!payloadSafe) return "payload_pin_mismatch";
+    if (!ignoreLatch && (sentOrUnknown || readLatch())) return "already_attempted";
+    if (!executorReady) return "executor_heartbeat_not_ready";
+    if (!signingWindowOpen()) return "approval_cutoff_passed";
+    return null;
   }
 
   function enforceButtons() {
@@ -138,12 +161,13 @@
         blockEvent(event, "Retry is disabled. Check the chain for the first outcome.");
         return;
       }
-      if (sentOrUnknown) {
+      const reason = signingBlockedReason(false);
+      if (reason === "already_attempted") {
         blockEvent(event, "A Phantom submission was already attempted. Never send twice.");
         return;
       }
-      if (!payloadSafe || !executorReady || !signingWindowOpen()) {
-        blockEvent(event, "Signing is blocked: payload, executor heartbeat, or T-60 gate is not ready.");
+      if (reason) {
+        blockEvent(event, "Signing is blocked (" + reason + ").");
         return;
       }
 
@@ -155,10 +179,61 @@
         return;
       }
       sentOrUnknown = true;
+      armedForThisAttempt = true;
       setTimeout(enforceButtons, 0);
     },
     true,
   );
+
+  // ---- last mechanical check, at the wallet call itself -------------------
+  //
+  // The click handler runs in capture phase and blocks the page's own listener,
+  // but a permitted click is not the same instant as the signature. Between the
+  // two the page may await a blockhash or a fee estimate, and the cutoff can
+  // pass while it does. A provider method can also be reached without any click
+  // at all -- from a console, another listener, or a retry path.
+  //
+  // Wrapping the provider evaluates the cutoff at the moment of signing rather
+  // than at the moment of intent, which is the only version of this check that
+  // means anything.
+  const wrapped = new WeakSet();
+  const SIGNING_METHODS = ["signTransaction", "signAllTransactions", "signAndSendTransaction"];
+
+  function wrapProvider(provider) {
+    if (!provider || typeof provider !== "object" || wrapped.has(provider)) return;
+    wrapped.add(provider);
+    for (const name of SIGNING_METHODS) {
+      const original = provider[name];
+      if (typeof original !== "function") continue;
+      try {
+        provider[name] = function guarded() {
+          // Consume the arming token first: whatever happens next, this click
+          // cannot authorise a second call.
+          const armed = armedForThisAttempt;
+          armedForThisAttempt = false;
+          const blocked = signingBlockedReason(armed);
+          if (blocked) {
+            enforceButtons();
+            return Promise.reject(new Error("solfrontier-guard: " + blocked));
+          }
+          if (!armed && !writeLatch()) {
+            return Promise.reject(new Error("solfrontier-guard: one_shot_storage_unavailable"));
+          }
+          sentOrUnknown = true;
+          setTimeout(enforceButtons, 0);
+          return original.apply(this, arguments);
+        };
+      } catch (_) {
+        // A non-writable provider property cannot be guarded here; the click
+        // gate and the persistent latch still apply.
+      }
+    }
+  }
+
+  function wrapKnownProviders() {
+    wrapProvider(window.solana);
+    wrapProvider(window.phantom && window.phantom.solana);
+  }
 
   window.addEventListener("storage", enforceButtons);
 
@@ -168,7 +243,14 @@
     payloadSafe = false;
   }
   enforceButtons();
+  wrapKnownProviders();
   refreshExecutorHeartbeat();
   setInterval(refreshExecutorHeartbeat, 1000);
-  setInterval(enforceButtons, 250);
+  // The provider may be injected after this script runs, and some wallets
+  // replace the object on connect, so re-wrapping is not optional. WeakSet
+  // membership makes it idempotent.
+  setInterval(() => {
+    enforceButtons();
+    wrapKnownProviders();
+  }, 250);
 })();

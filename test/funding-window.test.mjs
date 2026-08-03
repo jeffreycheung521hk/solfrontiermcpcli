@@ -12,6 +12,7 @@ import {
   windowState,
   shouldAttemptConfirm,
   describeOutcome,
+  serverExpiryVerdict,
   REQUIRED_POST_SIGNING_MS,
   POST_SIGNING_BUDGET_MS,
 } from '../src/commands/funding-window.mjs';
@@ -163,18 +164,140 @@ describe('confirmation is not optional once a payment is proven', () => {
   });
 });
 
+/**
+ * A `confirm_funding` success body shaped exactly like the server's, from
+ * bins/solfrontier-mcp/src/funding.rs::success_response. Healthy by default.
+ */
+const body = ({
+  arrivalMs = CUTOFF - 60_000,
+  expiresMs = CUTOFF,
+  txSlot = 1000,
+  ruleSlot = 1480,
+  ...overrides
+} = {}) => ({
+  status: 'budget_reserved',
+  funding_arrival_time_ms: arrivalMs,
+  funding_row_expires_at_ms: expiresMs,
+  funding_arrival_time_source: 'funding_transaction.blockTime',
+  arrived_after_funding_deadline: arrivalMs >= expiresMs,
+  watch_rule: {
+    expires_at_slot: ruleSlot,
+    funding_transaction_slot: txSlot,
+    expired_at_funding_slot: txSlot >= ruleSlot,
+  },
+  late_funding: arrivalMs >= expiresMs ? { refundable: true } : null,
+  ...overrides,
+});
+
+describe('the server, not our clock, decides whether funds are still leasable', () => {
+  test('a healthy body reports not expired and fully verified', () => {
+    const v = serverExpiryVerdict(body());
+    assert.equal(v.expired, false);
+    assert.equal(v.verified, true);
+    assert.deepEqual(v.signals, []);
+  });
+
+  test('the SLOT deadline is caught even though our clock says there is time', () => {
+    // The gap that mattered: expires_at_slot is a clock this client cannot
+    // evaluate. Wall-clock-only logic prints success over funds the executor
+    // can never lease.
+    const v = serverExpiryVerdict(body({ txSlot: 1480, ruleSlot: 1480 }));
+    assert.equal(v.expired, true);
+    assert.ok(v.signals.includes('watch_rule.expired_at_funding_slot'));
+
+    const o = describeOutcome({
+      confirmStatus: 'budget_reserved',
+      now: CUTOFF - 60_000,          // our clock is perfectly happy
+      expiresAtMs: CUTOFF,
+      confirmBody: body({ txSlot: 1480, ruleSlot: 1480 }),
+    });
+    assert.equal(o.runSuccess, false, 'a passed slot deadline must not exit green');
+    assert.equal(o.event, 'confirm.recorded_but_expired');
+    assert.equal(o.authority, 'server');
+  });
+
+  test('a missing transaction slot is unknown, not "not expired"', () => {
+    // expired_at_funding_slot is `observed_slot.is_some_and(..)` server-side,
+    // so with no slot it is false -- identical to a genuine pass. Verification
+    // must depend on the numbers being there, not on the boolean being false.
+    const v = serverExpiryVerdict(body({ txSlot: null }));
+    assert.equal(v.expired, false);
+    assert.equal(v.verified, false, 'absence of a slot is not evidence of freshness');
+
+    const o = describeOutcome({
+      confirmStatus: 'budget_reserved', now: 0, expiresAtMs: CUTOFF,
+      confirmBody: body({ txSlot: null }),
+    });
+    assert.equal(o.label, 'budget_reserved_unverified');
+    assert.equal(o.runSuccess, false);
+    assert.equal(o.event, 'confirm.recorded_but_unverified');
+  });
+
+  test('a boolean that contradicts its own inputs is treated as expired', () => {
+    const v = serverExpiryVerdict(body({ txSlot: 2000, ruleSlot: 1480, watch_rule: {
+      expires_at_slot: 1480, funding_transaction_slot: 2000, expired_at_funding_slot: false,
+    } }));
+    assert.equal(v.expired, true);
+    assert.deepEqual(v.disagreements, ['watch_rule.expired_at_funding_slot']);
+  });
+
+  test('a late arrival is caught from the deadline field', () => {
+    const v = serverExpiryVerdict(body({ arrivalMs: CUTOFF + 1 }));
+    assert.equal(v.expired, true);
+    assert.ok(v.signals.includes('arrived_after_funding_deadline'));
+    assert.ok(v.signals.includes('late_funding'));
+  });
+
+  test('the fallback arrival clock is reported but does not block', () => {
+    // Without blockTime the server substitutes its confirmation clock, which
+    // is at or after true arrival -- it can only make a payment look later, so
+    // trusting it cannot produce a false pass.
+    const v = serverExpiryVerdict(body({ funding_arrival_time_source: 'confirmation_clock_fallback' }));
+    assert.equal(v.expired, false);
+    assert.equal(v.arrivalTimeSource, 'confirmation_clock_fallback');
+  });
+
+  test('an empty or absent body is unverified, never a pass', () => {
+    for (const b of [null, undefined, {}]) {
+      const v = serverExpiryVerdict(b);
+      assert.equal(v.verified, false);
+      assert.equal(v.expired, false, 'nothing asserts lateness');
+      const o = describeOutcome({ confirmStatus: 'budget_reserved', now: 0, expiresAtMs: CUTOFF, confirmBody: b });
+      assert.equal(o.runSuccess, false, 'unverifiable is not success');
+    }
+  });
+});
+
 describe('recording a payment is not the same as the run succeeding', () => {
-  test('confirmed before the deadline is recorded, executable and a success', () => {
-    const o = describeOutcome({ confirmStatus: 'budget_reserved', now: CUTOFF - 1, expiresAtMs: CUTOFF });
+  test('confirmed before both deadlines is recorded, executable and a success', () => {
+    const o = describeOutcome({
+      confirmStatus: 'budget_reserved', now: CUTOFF - 1, expiresAtMs: CUTOFF, confirmBody: body(),
+    });
     assert.deepEqual([o.recorded, o.executable, o.runSuccess], [true, true, true]);
     assert.equal(o.event, 'confirm.ok');
+    assert.equal(o.authority, 'server');
+  });
+
+  test('our own clock still fails closed even when the server looks happy', () => {
+    // The server evaluates arrival against blockTime; our clock is a third,
+    // weaker signal that is kept as a backstop rather than replaced.
+    const o = describeOutcome({
+      confirmStatus: 'budget_reserved', now: CUTOFF, expiresAtMs: CUTOFF,
+      confirmBody: body({ arrivalMs: CUTOFF - 60_000 }),
+    });
+    assert.equal(o.runSuccess, false);
+    assert.equal(o.authority, 'client_clock_only');
+    assert.ok(o.signals.includes('client_wall_clock'));
   });
 
   test('confirmed at or after the deadline is recorded but NOT a success', () => {
     // The state both stranded amounts are in. It must be recorded -- the
     // chain and the ledger have to agree -- but a run that leaves money
     // permanently unusable did not succeed, and automation must see that.
-    const o = describeOutcome({ confirmStatus: 'budget_reserved', now: CUTOFF, expiresAtMs: CUTOFF });
+    const o = describeOutcome({
+      confirmStatus: 'budget_reserved', now: CUTOFF, expiresAtMs: CUTOFF,
+      confirmBody: body({ arrivalMs: CUTOFF }),
+    });
     assert.equal(o.recorded, true, 'the payment must still be recorded');
     assert.equal(o.executable, false);
     assert.equal(o.runSuccess, false, 'stranded funds are not a successful run');
@@ -182,18 +305,37 @@ describe('recording a payment is not the same as the run succeeding', () => {
   });
 
   test('the expired case is not labelled as a success in the event stream', () => {
-    const o = describeOutcome({ confirmStatus: 'budget_reserved', now: CUTOFF, expiresAtMs: CUTOFF });
+    const o = describeOutcome({
+      confirmStatus: 'budget_reserved', now: CUTOFF, expiresAtMs: CUTOFF, confirmBody: body({ arrivalMs: CUTOFF }),
+    });
     assert.notEqual(o.event, 'confirm.ok', 'an audit must not see a success marker over stranded funds');
     assert.equal(o.event, 'confirm.recorded_but_expired');
   });
 
   test('anything other than budget_reserved is neither recorded nor a success', () => {
     for (const status of ['pending', 'invalid_funding', undefined, null]) {
-      const o = describeOutcome({ confirmStatus: status, now: 0, expiresAtMs: CUTOFF });
+      const o = describeOutcome({ confirmStatus: status, now: 0, expiresAtMs: CUTOFF, confirmBody: body() });
       assert.equal(o.recorded, false, `status ${status}`);
       assert.equal(o.runSuccess, false);
       assert.equal(o.executable, false);
       assert.equal(o.event, 'confirm.failed');
     }
+  });
+});
+
+describe('the two halves of the approval gate agree on where it is', () => {
+  test('the signing page guard uses the same cutoff as the command line', async () => {
+    // A browser file cannot import the constant, so the agreement is asserted
+    // here. They were 60000 and 120000 for a while, which meant the page kept
+    // accepting signatures for a minute after the CLI declared the window shut.
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const path = await import('node:path');
+    const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+    const guard = readFileSync(path.join(root, 'scripts', 'demo', 'signing-guard.js'), 'utf8');
+    const match = guard.match(/const APPROVAL_CUTOFF_MS = (\d+);/);
+    assert.ok(match, 'the guard must declare APPROVAL_CUTOFF_MS');
+    assert.equal(Number(match[1]), REQUIRED_POST_SIGNING_MS);
+    assert.ok(!/expires_at_ms - 60000/.test(guard), 'the old hard-coded T-60 must be gone');
   });
 });
