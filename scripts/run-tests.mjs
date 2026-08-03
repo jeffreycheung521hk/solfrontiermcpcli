@@ -25,7 +25,12 @@ if (files.length === 0) {
 }
 
 console.error(`running ${files.length} test file(s): ${files.map((f) => path.basename(f)).join(', ')}`);
-const result = spawnSync(process.execPath, ['--test', ...files, ...process.argv.slice(2)], {
+// Forwarded flags go BEFORE the positional file list. Node stops reading
+// options at the first positional, so `--test file1 file2 --test-name-pattern x`
+// silently ignored the filter and still exited 0 — which reads exactly like a
+// narrowed run that passed. An ignored flag that produces a green tick is worse
+// than one that errors.
+const result = spawnSync(process.execPath, ['--test', ...process.argv.slice(2), ...files], {
   cwd: root,
   stdio: 'inherit',
 });

@@ -111,13 +111,29 @@ export async function run({ config, flags, verbose }) {
     try {
       const rpc = new SolanaRpc({ timeoutMs: config.timeoutMs });
       reserve = await readReserveSnapshot(rpc);
+      // The reason has to be derived from the same predicate that chose the
+      // branch. `fresh` is three conditions -- the explicit stale bit clear AND
+      // a slot age within the gate -- so blaming age alone was wrong whenever
+      // the stale bit was what failed: a reserve at age 0 with a refresh
+      // pending was reported as "age 0 slots exceeds the 16-slot gate", which
+      // is not true and sends the reader to the wrong cause. The demo harness
+      // learned the three-part definition in 9b5274c; the product did not,
+      // which is the same shape as the fix that stayed in the harness while
+      // the product kept the defect that lost money.
+      const staleBitSet = reserve.staleFlag === true;
+      const ageOverGate = !(reserve.ageSlots >= 0 && reserve.ageSlots <= MAX_RESERVE_STALENESS_SLOTS);
+      const reason = staleBitSet && ageOverGate
+        ? `the reserve's stale bit is set and age ${reserve.ageSlots} is outside 0..${MAX_RESERVE_STALENESS_SLOTS}`
+        : staleBitSet
+          ? `the reserve's stale bit is set (age ${reserve.ageSlots} is within the gate; a refresh is pending)`
+          : `age ${reserve.ageSlots} slots is outside 0..${MAX_RESERVE_STALENESS_SLOTS}`;
       checks.push(
         reserve.fresh
-          ? check('reserve freshness', PASS, `age ${reserve.ageSlots} slots (limit ${MAX_RESERVE_STALENESS_SLOTS}) — executable right now`)
+          ? check('reserve freshness', PASS, `stale bit clear, age ${reserve.ageSlots} slots (limit ${MAX_RESERVE_STALENESS_SLOTS}) — executable right now`)
           : check(
               'reserve freshness',
               WARN,
-              `age ${reserve.ageSlots} slots exceeds the ${MAX_RESERVE_STALENESS_SLOTS}-slot gate. The executor will wait, and retry safely, until a refresh lands.`,
+              `not fresh: ${reason}. The executor will wait, and retry safely, until a refresh lands.`,
             ),
       );
       checks.push(
