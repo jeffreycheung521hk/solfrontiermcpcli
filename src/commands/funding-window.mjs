@@ -17,13 +17,13 @@
  *
  * This is a PINNED SAFETY ASSUMPTION, not a proven upper bound. The total is
  * derived from its parts rather than picked, but each part is itself an
- * assumption — one measurement taken on a single day, one configured timeout,
+ * assumption -- one measurement taken on a single day, one configured timeout,
  * and one estimate of work that has been observed only a handful of times.
  * Treat a change to any figure as a change to the safety argument.
  *
  * It is NOT a reconstruction of either stranded amount, and an earlier version
  * of this comment wrongly claimed it was. Both were paid with far more than
- * this remaining — roughly 133 s and 159 s — so this cutoff would have blocked
+ * this remaining -- roughly 133 s and 159 s -- so this cutoff would have blocked
  * neither. Their proximate causes were an executor started after the deadline
  * and a memo prefilter that discarded the one correct transaction; both are
  * fixed elsewhere and neither is addressed here. What this budget defends
@@ -73,7 +73,7 @@ export function windowState({ now, expiresAtMs, reconcileMs, postSigningMs = REQ
     // still land in time, so anything already broadcast must still be found
     // and confirmed. Nothing NEW may be approved.
     inGracePeriod: !maySign && !pastCutoff,
-    // Should we keep looking? Past the deadline, yes — a payment can be on
+    // Should we keep looking? Past the deadline, yes -- a payment can be on
     // chain and on time while the RPC is still slow to list it. Abandoning
     // the search at the deadline is how money moves with nothing recorded.
     keepSearching: now < reconcileUntil,
@@ -106,7 +106,7 @@ export function shouldAttemptConfirm({ attempt, now, provenAt, retryMs, lastStat
  * The client's wall clock is the WEAKEST of the available signals and it
  * cannot see the one that matters most. Whether the executor may take a lease
  * is governed by two deadlines: the funding row's `expires_at_ms`, and the
- * WatchRule's `expires_at_slot` — a *slot* clock the client has no way to
+ * WatchRule's `expires_at_slot` -- a *slot* clock the client has no way to
  * evaluate, because it never observes the transaction's slot against the
  * rule's. A run that consults only its own clock will happily print success
  * over funds whose slot deadline has already passed.
@@ -118,7 +118,7 @@ export function shouldAttemptConfirm({ attempt, now, provenAt, retryMs, lastStat
  *
  *  - `expired_at_funding_slot` is computed server-side as
  *    `observed_slot.is_some_and(|s| s >= expires_at_slot)`. With no observed
- *    slot it is `false` — indistinguishable from a genuine "not expired". The
+ *    slot it is `false` -- indistinguishable from a genuine "not expired". The
  *    slot verdict therefore counts only when a slot was actually observed.
  *  - The booleans are re-derived here from the raw numbers alongside them. If
  *    a boolean and its own inputs disagree, something is wrong with an
@@ -196,7 +196,7 @@ export function serverExpiryVerdict(body) {
  *               chain must be recorded even when it is too late to use, or
  *               the ledger and the chain disagree.
  *   executable  can the executor still take a lease on it? This is the
- *               server's verdict, not ours — see serverExpiryVerdict.
+ *               server's verdict, not ours -- see serverExpiryVerdict.
  *   runSuccess  did the run achieve what it set out to? Funds that can never
  *               be leased are a failed run, however tidy the bookkeeping, and
  *               so are funds we cannot PROVE are leasable.

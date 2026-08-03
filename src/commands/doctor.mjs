@@ -1,11 +1,11 @@
-// `doctor` — one command that answers "will a run work right now?"
+// `doctor` -- one command that answers "will a run work right now?"
 //
 // This exists because of a specific, documented failure: on 2026-08-01 a
 // mainnet acceptance run was lost not to a bug but to ordering and timing.
 // Every check below is a lesson from that afternoon, made mechanical:
 //
 //   * is the binary there and does it actually complete a handshake?
-//   * is the database real, writable, and migrated — or a zero-byte file
+//   * is the database real, writable, and migrated -- or a zero-byte file
 //     that will make the first scan fail?
 //   * is the RPC endpoint configured at all?
 //   * is the Solend reserve fresh enough to satisfy the executor's 16-slot
@@ -60,7 +60,7 @@ export async function run({ config, flags, verbose }) {
 
   // ---- 2. database -------------------------------------------------------
   if (!existsSync(config.dbPath)) {
-    checks.push(check('database file', WARN, `${config.dbPath} does not exist yet — the server will create it`));
+    checks.push(check('database file', WARN, `${config.dbPath} does not exist yet -- the server will create it`));
   } else {
     const size = statSync(config.dbPath).size;
     checks.push(
@@ -89,7 +89,7 @@ export async function run({ config, flags, verbose }) {
   checks.push(
     config.rpcUrlPresent
       ? check('SOLFRONTIER_RPC_URL', PASS, 'set (value never displayed)')
-      : check('SOLFRONTIER_RPC_URL', WARN, 'not set — chain reads and finalize will return config_missing'),
+      : check('SOLFRONTIER_RPC_URL', WARN, 'not set -- chain reads and finalize will return config_missing'),
   );
 
   // A keypair in this environment is not dangerous by itself: this client
@@ -129,7 +129,7 @@ export async function run({ config, flags, verbose }) {
           : `age ${reserve.ageSlots} slots is outside 0..${MAX_RESERVE_STALENESS_SLOTS}`;
       checks.push(
         reserve.fresh
-          ? check('reserve freshness', PASS, `stale bit clear, age ${reserve.ageSlots} slots (limit ${MAX_RESERVE_STALENESS_SLOTS}) — executable right now`)
+          ? check('reserve freshness', PASS, `stale bit clear, age ${reserve.ageSlots} slots (limit ${MAX_RESERVE_STALENESS_SLOTS}) -- executable right now`)
           : check(
               'reserve freshness',
               WARN,
@@ -142,11 +142,11 @@ export async function run({ config, flags, verbose }) {
       if (thresholdBps !== null) {
         checks.push(
           reserve.supplyAprBps > thresholdBps
-            ? check('condition vs threshold', PASS, `${reserve.supplyAprBps} bps > ${thresholdBps} bps — condition is met`)
+            ? check('condition vs threshold', PASS, `${reserve.supplyAprBps} bps > ${thresholdBps} bps -- condition is met`)
             : check(
                 'condition vs threshold',
                 FAIL,
-                `${reserve.supplyAprBps} bps is NOT above ${thresholdBps} bps — the executor would never fire. Lower the threshold or wait.`,
+                `${reserve.supplyAprBps} bps is NOT above ${thresholdBps} bps -- the executor would never fire. Lower the threshold or wait.`,
               ),
         );
       }
@@ -212,8 +212,8 @@ export async function run({ config, flags, verbose }) {
     info('');
     info(
       verdict === 'GO'
-        ? `${style.green('GO')} — ${checks.length - warnings.length} checks clean${warnings.length ? `, ${warnings.length} warning(s)` : ''}`
-        : `${style.red('NO-GO')} — ${failures.length} blocking failure(s)`,
+        ? `${style.green('GO')} -- ${checks.length - warnings.length} checks clean${warnings.length ? `, ${warnings.length} warning(s)` : ''}`
+        : `${style.red('NO-GO')} -- ${failures.length} blocking failure(s)`,
     );
     if (verdict === 'GO') {
       info('');

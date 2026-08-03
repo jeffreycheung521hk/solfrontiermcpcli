@@ -1,8 +1,8 @@
-// `flow` — the funding orchestration, with the hard-won ordering built in.
+// `flow` -- the funding orchestration, with the hard-won ordering built in.
 //
 // The 2026-08-01 acceptance failed on sequencing, not on any bug: every
 // manual step ran before the executor was started, and by the time it was,
-// both deadlines had passed. The fix is not a faster human — it is a tool
+// both deadlines had passed. The fix is not a faster human -- it is a tool
 // that does the machine parts instantly and keeps the human on the critical
 // path for exactly one action: signing.
 //
@@ -161,7 +161,7 @@ export async function run({ config, flags, verbose }) {
     });
     info(
       `reserve: ${reserve.supplyAprBps} bps supply APY, age ${reserve.ageSlots} slots ` +
-        `(${reserve.fresh ? style.green('fresh') : style.yellow('stale — executor will wait')})`,
+        `(${reserve.fresh ? style.green('fresh') : style.yellow('stale -- executor will wait')})`,
     );
     if (reserve.supplyAprBps <= opts.thresholdBps) {
       throw new CliError(
@@ -219,7 +219,7 @@ export async function run({ config, flags, verbose }) {
       return EXIT.FAILED;
     }
     record('propose.ok', { draftHash: proposal.body.draft_hash });
-    info(`proposed: draft ${proposal.body.draft_hash.slice(0, 12)}…`);
+    info(`proposed: draft ${proposal.body.draft_hash.slice(0, 12)}...`);
 
     if (opts.dryRun && !opts.userWallet) {
       info(style.dim('dry run: stopping before finalize (no --user-wallet given)'));
@@ -251,7 +251,7 @@ export async function run({ config, flags, verbose }) {
           recorded: false, runSuccess: false, timeline,
         });
         info('');
-        info(style.red(`STOPPED BEFORE FINALIZE — no live executor (${beat.reason}).`));
+        info(style.red(`STOPPED BEFORE FINALIZE -- no live executor (${beat.reason}).`));
         info(style.dim('Start `solfrontier-mcp watch --execute` against this database FIRST,'));
         info(style.dim('wait for it to idle on "rows": [], then re-run this command.'));
         info(style.dim(`Heartbeat expected at ${beat.path}`));
@@ -283,7 +283,7 @@ export async function run({ config, flags, verbose }) {
     // been displayed has been handed over, and no amount of red text unhands
     // it; the only enforcement a client can actually perform is not to emit it.
     //
-    // The server withholds its own handoff too, but at the funding DEADLINE —
+    // The server withholds its own handoff too, but at the funding DEADLINE --
     // 120 s too late to help. In the interval between the two it will return a
     // perfectly signable page, so the decision has to be made here.
     //
@@ -316,7 +316,7 @@ export async function run({ config, flags, verbose }) {
         reason: 'approval_cutoff_passed', recorded: false, runSuccess: false, timeline,
       });
       info('');
-      info(style.red('SIGNING HANDOFF WITHHELD — the approval cutoff has already passed.'));
+      info(style.red('SIGNING HANDOFF WITHHELD -- the approval cutoff has already passed.'));
       info(style.dim(`Only ${Math.round(handoff.msUntilCutoff / 1000)}s remain before the funding deadline, and `
         + `${Math.round(opts.postSigningMs / 1000)}s are needed after signing for reserve freshness, `
         + 'confirmation and the executor.'));
@@ -326,7 +326,7 @@ export async function run({ config, flags, verbose }) {
     }
 
     info('');
-    info(style.bold('═══ SIGN NOW ═══'));
+    info(style.bold('=== SIGN NOW ==='));
     if (finalized.body.signing_page_url) info(finalized.body.signing_page_url);
     info(`memo    claw:w5h:${intentId}:${finalized.body.rule_hash}`);
     info(`amount  ${finalized.body.funding?.amount_raw} raw units`);
@@ -336,7 +336,7 @@ export async function run({ config, flags, verbose }) {
     info(`approve within  ${Math.round(handoff.msUntilApprovalCutoff / 1000)}s`);
     info(style.dim(`(funding deadline is ${Math.round(handoff.msUntilCutoff / 1000)}s away; the ` +
       `${Math.round(opts.postSigningMs / 1000)}s difference is reserve freshness, confirmation and the executor)`));
-    info(style.bold('════════════════'));
+    info(style.bold('================'));
     info('');
 
     if (opts.dryRun) {
@@ -397,14 +397,14 @@ export async function run({ config, flags, verbose }) {
           enforcement: 'advisory_only_url_already_issued',
         });
         info('');
-        info(style.red('APPROVAL CUTOFF PASSED — the signing handoff is now void.'));
+        info(style.red('APPROVAL CUTOFF PASSED -- the signing handoff is now void.'));
         info(style.dim('Too little time remains for reserve freshness, confirmation and the executor.'));
         // Honest about the limit of this particular check. Before the handoff
         // the client can withhold the URL, which is enforcement. Afterwards the
         // URL is in the operator's hands and this is only a message; the
         // mechanical block at that point has to live in the signing page, which
         // is why the page guard re-checks the same cutoff at the wallet call.
-        info(style.dim('This message cannot revoke a URL already issued — do not approve in the wallet.'));
+        info(style.dim('This message cannot revoke a URL already issued -- do not approve in the wallet.'));
         info(style.dim('Any payment already broadcast is still being searched for.'));
       }
       if (inGracePeriod) { /* still searching for an already-broadcast payment */ }
@@ -426,7 +426,7 @@ export async function run({ config, flags, verbose }) {
           // is exactly what happened on 2026-08-03.
           onRejected: ({ signature, reason, detail }) => {
             record('detect.rejected', { signature, reason, detail });
-            info(style.dim(`  rejected ${signature.slice(0, 12)}… — ${reason}`));
+            info(style.dim(`  rejected ${signature.slice(0, 12)}... -- ${reason}`));
           },
         });
         if (matches.length > 1) {
@@ -448,7 +448,7 @@ export async function run({ config, flags, verbose }) {
         const left = Math.round(windowAt().msUntilApprovalCutoff / 1000);
         if (left !== lastReport && left % 15 === 0) {
           lastReport = left;
-          info(style.dim(`waiting for the exact payment… ${left}s left to approve safely`));
+          info(style.dim(`waiting for the exact payment... ${left}s left to approve safely`));
         }
       }
       await sleep(opts.pollMs);
@@ -463,7 +463,7 @@ export async function run({ config, flags, verbose }) {
     }
     const lateBySeconds = Math.round((Date.now() - expiresAtMs) / 1000);
     record('detect.found', { signature: fundingSignature, slot: fundingProof.slot, afterCutoff: lateBySeconds > 0 });
-    info(`detected exact payment ${fundingSignature.slice(0, 16)}… (slot ${fundingProof.slot})`);
+    info(`detected exact payment ${fundingSignature.slice(0, 16)}... (slot ${fundingProof.slot})`);
 
     // ---- confirm ---------------------------------------------------------
     //
@@ -548,19 +548,19 @@ export async function run({ config, flags, verbose }) {
       emitResult(confirmation?.body ?? { status: 'unknown' });
       info('');
       if (runSuccess) {
-        info(`${style.green('funded')} — ${secondsLeft}s of budget left. The executor should lease within ~5s.`);
+        info(`${style.green('funded')} -- ${secondsLeft}s of budget left. The executor should lease within ~5s.`);
       } else if (recorded && outcome.label === 'budget_reserved_unverified') {
         info(style.red('funded and recorded, but NOT provably leasable.'));
         info(style.dim(`${outcome.note}.`));
-        info(style.dim(`Signature ${fundingSignature} — verify by hand before assuming it will execute.`));
+        info(style.dim(`Signature ${fundingSignature} -- verify by hand before assuming it will execute.`));
       } else if (recorded) {
         info(style.red('funded, but past a deadline: the executor cannot lease this intent.'));
         info(style.dim(`Recorded as ${outcome.note}.`));
         if (outcome.signals?.length) info(style.dim(`Expiry signals: ${outcome.signals.join(', ')}.`));
-        info(style.dim(`Signature ${fundingSignature} — reconcile by hand, do not rerun.`));
+        info(style.dim(`Signature ${fundingSignature} -- reconcile by hand, do not rerun.`));
       } else {
         info(style.red('confirm_funding did not reach budget_reserved; inspect the result above'));
-        info(style.dim(`The payment is on chain as ${fundingSignature} — reconcile by hand, do not rerun.`));
+        info(style.dim(`The payment is on chain as ${fundingSignature} -- reconcile by hand, do not rerun.`));
       }
     }
     // Funds that can never be leased are a failed run, however tidy the
