@@ -141,8 +141,10 @@ export class McpSession {
 
   #ingest(chunk) {
     for (const line of this.#framer.push(chunk)) {
-      if (this.#verbose) process.stderr.write(`[2m<<[0m ${line}\n`);
-      this.#onFrame?.('recv', line);
+      if (this.#verbose) process.stderr.write(`[2m<<[0m ${redactSensitive(line)}\n`);
+      // Redacted for the same reason as the verbose echo: frames carry tool
+      // arguments, and this hook exists to be written somewhere durable.
+      this.#onFrame?.('recv', redactSensitive(line));
 
       let message;
       try {
@@ -178,8 +180,8 @@ export class McpSession {
 
   #write(payload) {
     const line = JSON.stringify(payload);
-    if (this.#verbose) process.stderr.write(`[2m>>[0m ${line}\n`);
-    this.#onFrame?.('send', line);
+    if (this.#verbose) process.stderr.write(`[2m>>[0m ${redactSensitive(line)}\n`);
+    this.#onFrame?.('send', redactSensitive(line));
     if (!this.#child?.stdin.writable) {
       throw new TransportError('server stdin is closed', { stderrTail: this.stderrTail });
     }

@@ -26,6 +26,7 @@ import { SolanaRpc } from '../solana/rpc.mjs';
 import { readReserveSnapshot } from '../solana/solend.mjs';
 import { RAIL, draftParams, toRawAmount } from './intent.mjs';
 import { findFundingMatches } from '../solana/funding-proof.mjs';
+import { windowState, shouldAttemptConfirm, describeOutcome } from './funding-window.mjs';
 import { emitResult, info, event, style, isJsonMode } from '../cli/output.mjs';
 import { EXIT, UsageError, CliError } from '../cli/exit-codes.mjs';
 
@@ -261,10 +262,14 @@ export async function run({ config, flags, verbose }) {
     let fundingProof = null;
     let lastReport = 0;
     let warnedCutoff = false;
-    const reconcileUntil = expiresAtMs + opts.reconcileMs;
+    // Deadline arithmetic lives in funding-window.mjs, where it is tested
+    // against a fake clock. Both previous versions of this logic were wrong
+    // at the boundary and both looked correct running against a real one.
+    const windowAt = (now = Date.now()) =>
+      windowState({ now, expiresAtMs, reconcileMs: opts.reconcileMs });
 
-    while (Date.now() < reconcileUntil) {
-      const pastCutoff = Date.now() >= expiresAtMs;
+    while (windowAt().keepSearching) {
+      const { pastCutoff } = windowAt();
       if (pastCutoff && !warnedCutoff) {
         warnedCutoff = true;
         record('detect.cutoff_passed', {});
@@ -330,24 +335,43 @@ export async function run({ config, flags, verbose }) {
     // which is the exact failure this whole section exists to prevent. Only
     // retries are bounded, by their own budget measured from the proof.
     let confirmation = null;
-    const confirmRetryUntil = Date.now() + CONFIRM_RETRY_MS;
+    let lastStatus = null;
+    const provenAt = Date.now();
     for (let attempt = 1; attempt <= 10; attempt++) {
+      const decision = shouldAttemptConfirm({
+        attempt,
+        now: Date.now(),
+        provenAt,
+        retryMs: CONFIRM_RETRY_MS,
+        lastStatus,
+        retryableStatuses: RETRYABLE_CONFIRM_STATUSES,
+      });
+      if (!decision.attempt) {
+        record('confirm.stopped', { attempt, reason: decision.reason });
+        break;
+      }
       confirmation = await session.callTool('confirm_funding', {
         intent_id: intentId,
         tx_signature: fundingSignature,
       });
-      const status = confirmation.body?.status;
-      record('confirm.attempt', { attempt, status });
-      if (status === 'budget_reserved') break;
-      if (status && !RETRYABLE_CONFIRM_STATUSES.has(status)) break;
-      if (Date.now() >= confirmRetryUntil) break;
+      lastStatus = confirmation.body?.status ?? null;
+      record('confirm.attempt', { attempt, status: lastStatus });
+      if (lastStatus === 'budget_reserved') break;
       await sleep(2000);
     }
 
-    const ok = confirmation?.body?.status === 'budget_reserved';
+    // `budget_reserved` alone is not success: the executor still needs the
+    // funding deadline ahead of it to take a lease. Both stranded amounts
+    // from this project reached budget_reserved and neither can ever execute.
+    const outcome = describeOutcome({
+      confirmStatus: confirmation?.body?.status,
+      now: Date.now(),
+      expiresAtMs,
+    });
+    const ok = outcome.ok;
+    const executable = outcome.executable;
     const secondsLeft = Math.round((expiresAtMs - Date.now()) / 1000);
-    const executable = ok && secondsLeft > 0;
-    record(ok ? 'confirm.ok' : 'confirm.failed', { secondsLeft, executable });
+    record(ok ? 'confirm.ok' : 'confirm.failed', { secondsLeft, executable, label: outcome.label });
 
     if (isJsonMode()) {
       emitResult({

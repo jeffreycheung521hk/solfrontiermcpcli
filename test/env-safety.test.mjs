@@ -52,6 +52,29 @@ describe('child environment', () => {
   });
 });
 
+describe('verbose frame dumps', () => {
+  // --verbose echoes every protocol frame, and frames carry tool arguments.
+  // A secret pasted into an argument would otherwise be printed verbatim and
+  // land in whatever the operator's terminal is logged to.
+  test('a secret inside a protocol frame is redacted before it is echoed', () => {
+    const env = { ...HARMLESS, ...SECRETS };
+    const frame = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'x', arguments: { path: SECRETS.SOLFRONTIER_CONTROLLED_WALLET_KEYPAIR } },
+    });
+    const out = redactSensitive(frame, env);
+    assert.ok(!out.includes('controlled-wallet.json'), out);
+    assert.match(out, /redacted/);
+  });
+
+  test('an ordinary frame survives intact, so --verbose stays useful', () => {
+    const frame = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+    assert.equal(redactSensitive(frame, { ...HARMLESS, ...SECRETS }), frame);
+  });
+});
+
 describe('redaction of server output', () => {
   const env = { ...HARMLESS, ...SECRETS };
 
