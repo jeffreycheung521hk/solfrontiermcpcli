@@ -29,8 +29,14 @@ const FIXTURE = JSON.parse(
 const FAKE_SERVER = path.join(ROOT, 'test', 'fake-solfrontier-server.mjs');
 const USER_WALLET = 'C4QQjzWxnJ5QFAbkzhQJ3wTzyX6nw1vyFvJwbPXJGPNW';
 
-/** Run the real flow command against fakes; returns parsed --json output. */
-async function runFlow({ rpcUrl, serverFlags = [], flowFlags = [] }) {
+/**
+ * Run the real flow command against fakes; returns parsed --json output.
+ *
+ * `requireExecutor` defaults to false because these fakes have no executor
+ * process and almost every test here is about funding detection rather than
+ * liveness. The one test that IS about liveness sets it true.
+ */
+async function runFlow({ rpcUrl, serverFlags = [], flowFlags = [], requireExecutor = false }) {
   const dir = await mkdtemp(path.join(tmpdir(), 'sfcli-orch-'));
   const configPath = path.join(dir, 'sfcli.config.json');
   await writeFile(configPath, JSON.stringify({
@@ -46,6 +52,7 @@ async function runFlow({ rpcUrl, serverFlags = [], flowFlags = [] }) {
         '--user-wallet', USER_WALLET,
         '--yes', '--json', '--quiet', '--color', 'never',
         '--poll-ms', '250',
+        ...(requireExecutor ? [] : ['--skip-executor-check']),
         ...flowFlags,
       ], {
         cwd: ROOT,
@@ -119,6 +126,36 @@ describe('funding orchestration, end to end', () => {
       assert.equal(r.body.proof.controlledDelta, '200000');
       assert.equal(r.body.proof.userDelta, '-200000');
       assert.match(r.stderr, /"type":"confirm\.ok"/);
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('the signing handoff is withheld when no executor is running', async () => {
+    // The 2026-08-01 failure, made unreachable. That attempt paid 0.2 USDC and
+    // only afterwards discovered `watch --execute` had never been started. The
+    // person signing cannot see the other process, so the client refuses on
+    // their behalf -- and refusing costs nothing, while not refusing cost 0.2
+    // USDC that is still stranded.
+    const rpc = await startFakeRpc({
+      slot: () => 1000,
+      signatureRows: () => [],
+      transaction: () => null,
+    });
+    try {
+      const r = await runFlow({
+        rpcUrl: rpc.url,
+        requireExecutor: true,
+        serverFlags: ['--window-ms', '200000'],
+        flowFlags: ['--reconcile-ms', '1000'],
+      });
+      assert.notEqual(r.code, 0, 'no executor means no handoff, and that is a failed run');
+      assert.equal(r.body?.status, 'handoff_withheld', `stderr: ${r.stderr}`);
+      assert.equal(r.body.reason, 'executor_unreadable');
+      assert.match(r.stderr, /"type":"handoff\.executor_check"/);
+      // Nothing signable may reach any output channel.
+      assert.ok(!`${r.stdout}\n${r.stderr}`.includes('#payload='));
+      assert.ok(!r.stderr.includes('"type":"detect.found"'));
     } finally {
       await rpc.close();
     }

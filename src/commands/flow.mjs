@@ -26,6 +26,7 @@ import { SolanaRpc } from '../solana/rpc.mjs';
 import { readReserveSnapshot } from '../solana/solend.mjs';
 import { RAIL, draftParams, toRawAmount } from './intent.mjs';
 import { findFundingMatches } from '../solana/funding-proof.mjs';
+import { checkExecutorHeartbeat } from './executor-heartbeat.mjs';
 import {
   windowState,
   shouldAttemptConfirm,
@@ -49,6 +50,7 @@ export const spec = {
     'poll-ms': { type: 'string' },
     'reconcile-ms': { type: 'string' },
     'post-signing-ms': { type: 'string' },
+    'skip-executor-check': { type: 'boolean' },
   },
   notes: [
     'Start the executor (`solfrontier-mcp watch --execute`) BEFORE this command.',
@@ -125,6 +127,9 @@ export function validate(flags) {
   return {
     amount, thresholdBps, userWallet, pollMs, reconcileMs,
     postSigningMs, postSigningOverridden,
+    // Opt-out, never a default. The check exists because the failure it
+    // prevents already happened once and cost real money.
+    skipExecutorCheck: Boolean(flags['skip-executor-check']),
     dryRun: Boolean(flags['dry-run']),
   };
 }
@@ -260,6 +265,36 @@ export async function run({ config, flags, verbose }) {
         info(style.dim('The approval cutoff moves later by the difference; so does the risk.'));
       }
     }
+    // Is the process that must act on this payment actually running?
+    //
+    // The 2026-08-01 attempt lost 0.2 USDC to ordering: the money was paid and
+    // only afterwards did anyone discover the executor had not been started.
+    // The person signing cannot see the other process, so the client checks
+    // for them. A missing or stale heartbeat withholds the URL, exactly like a
+    // passed approval cutoff -- refusing is the safe failure, and the whole
+    // value of the check is that its failure mode is refusal.
+    if (!opts.skipExecutorCheck) {
+      const beat = await checkExecutorHeartbeat({
+        dbPath: config.dbPath,
+        expectedWallet: RAIL.controlled_wallet,
+      });
+      record('handoff.executor_check', { live: beat.live, reason: beat.reason, ageMs: beat.ageMs });
+      if (!beat.live) {
+        emitResult({
+          intentId, status: 'handoff_withheld', reason: `executor_${beat.reason}`,
+          recorded: false, runSuccess: false, timeline,
+        });
+        info('');
+        info(style.red(`SIGNING HANDOFF WITHHELD — no live executor (${beat.reason}).`));
+        info(style.dim('Start `solfrontier-mcp watch --execute` against this database FIRST,'));
+        info(style.dim('wait for it to idle on "rows": [], then re-run this command.'));
+        info(style.dim(`Heartbeat expected at ${beat.path}`));
+        info(style.dim(`Intent ${intentId} will expire unfunded. Nothing was signed and no money moved.`));
+        return EXIT.FAILED;
+      }
+      info(style.dim(`executor: live (heartbeat ${Math.round((beat.ageMs ?? 0) / 1000)}s old)`));
+    }
+
     const handoff = windowState({
       now: Date.now(), expiresAtMs, reconcileMs: opts.reconcileMs, postSigningMs: opts.postSigningMs,
     });
