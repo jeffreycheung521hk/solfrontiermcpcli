@@ -62,14 +62,18 @@ knows what a "quote" is.
 | Exact funding proof (selection → fetch → validation) | 28 tests driving the real captured 2026-08-02 payload | **proven offline** |
 | Replay defence (a payment older than the intent) | slot floor; 5 tests, including one the signature baseline cannot catch | **proven offline** |
 | Secrets withheld from spawned binaries; output redaction | 9 tests | **proven** |
-| `flow` — signing cutoff vs reconciliation window | written in response to the incident below; **no fake-clock tests yet** | **UNPROVEN** |
-| End-to-end orchestration (candidate → confirm → `budget_reserved` → executor lease) | **none** | **UNPROVEN** |
+| `flow` — signing cutoff vs reconciliation window | 18 fake-clock tests, boundaries on both sides of each deadline | **proven offline** |
+| Funding orchestration (candidate → proof → confirm → `budget_reserved`) | 5 hermetic end-to-end runs against a fake RPC and fake MCP server | **proven offline** |
+| Executor lease and execution | **none — and out of scope here** | **not this repository's** |
 
-The last two rows are the honest gaps, stated here rather than left for a
-reader to find out. The first is new code written after a real loss and has
-not been tested against a controlled clock. The second has never been
-exercised as a whole; the intended way to close it is a hermetic regression
-with a fake RPC and fake server, **not** another live run.
+The last row is a boundary, not a gap. `watch --execute` is a separate
+process owned by the server repository, and this CLI never executes anything;
+what it can prove is whether a lease is still *possible*, and that it reports
+that honestly. Simulating the executor here would be theatre.
+
+Everything above is offline. No amount of it substitutes for a live run, and
+a live run remains NO-GO until the funds question is settled — but each of
+these was written because something went wrong, and each would have caught it.
 
 ## Incident, 2026-08-02: 0.2 USDC transferred and not recorded
 
