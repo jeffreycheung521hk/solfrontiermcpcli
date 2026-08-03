@@ -227,6 +227,40 @@ export async function run({ config, flags, verbose }) {
       return EXIT.OK;
     }
 
+    // ---- is the executor running? ASK BEFORE STARTING THE CLOCK ----------
+    //
+    // This check used to sit AFTER finalize, and on 2026-08-03 that cost half
+    // a funding window: the first attempt finalized (starting the 180-second
+    // clock), then discovered a stale heartbeat and withheld the handoff. The
+    // intent id is deterministic, so the retry 28 seconds later recovered the
+    // SAME row with the SAME deadline and handed the human a URL saying
+    // "approve within 33s" instead of 60.
+    //
+    // A refusal must not consume the thing it is protecting. Everything this
+    // check needs is known before finalize, so there was never a reason to
+    // spend the window first.
+    if (!opts.skipExecutorCheck) {
+      const beat = await checkExecutorHeartbeat({
+        dbPath: config.dbPath,
+        expectedWallet: RAIL.controlled_wallet,
+      });
+      record('preflight.executor_check', { live: beat.live, reason: beat.reason, ageMs: beat.ageMs });
+      if (!beat.live) {
+        emitResult({
+          status: 'executor_not_running', reason: `executor_${beat.reason}`,
+          recorded: false, runSuccess: false, timeline,
+        });
+        info('');
+        info(style.red(`STOPPED BEFORE FINALIZE — no live executor (${beat.reason}).`));
+        info(style.dim('Start `solfrontier-mcp watch --execute` against this database FIRST,'));
+        info(style.dim('wait for it to idle on "rows": [], then re-run this command.'));
+        info(style.dim(`Heartbeat expected at ${beat.path}`));
+        info(style.dim('No intent was created and no funding clock was started.'));
+        return EXIT.FAILED;
+      }
+      info(style.dim(`executor: live (heartbeat ${Math.round((beat.ageMs ?? 0) / 1000)}s old)`));
+    }
+
     // ---- finalize: THE CLOCK STARTS HERE ---------------------------------
     const finalized = await session.callTool('finalize_intent', {
       ...draftParams(flags),
@@ -265,36 +299,6 @@ export async function run({ config, flags, verbose }) {
         info(style.dim('The approval cutoff moves later by the difference; so does the risk.'));
       }
     }
-    // Is the process that must act on this payment actually running?
-    //
-    // The 2026-08-01 attempt lost 0.2 USDC to ordering: the money was paid and
-    // only afterwards did anyone discover the executor had not been started.
-    // The person signing cannot see the other process, so the client checks
-    // for them. A missing or stale heartbeat withholds the URL, exactly like a
-    // passed approval cutoff -- refusing is the safe failure, and the whole
-    // value of the check is that its failure mode is refusal.
-    if (!opts.skipExecutorCheck) {
-      const beat = await checkExecutorHeartbeat({
-        dbPath: config.dbPath,
-        expectedWallet: RAIL.controlled_wallet,
-      });
-      record('handoff.executor_check', { live: beat.live, reason: beat.reason, ageMs: beat.ageMs });
-      if (!beat.live) {
-        emitResult({
-          intentId, status: 'handoff_withheld', reason: `executor_${beat.reason}`,
-          recorded: false, runSuccess: false, timeline,
-        });
-        info('');
-        info(style.red(`SIGNING HANDOFF WITHHELD — no live executor (${beat.reason}).`));
-        info(style.dim('Start `solfrontier-mcp watch --execute` against this database FIRST,'));
-        info(style.dim('wait for it to idle on "rows": [], then re-run this command.'));
-        info(style.dim(`Heartbeat expected at ${beat.path}`));
-        info(style.dim(`Intent ${intentId} will expire unfunded. Nothing was signed and no money moved.`));
-        return EXIT.FAILED;
-      }
-      info(style.dim(`executor: live (heartbeat ${Math.round((beat.ageMs ?? 0) / 1000)}s old)`));
-    }
-
     const handoff = windowState({
       now: Date.now(), expiresAtMs, reconcileMs: opts.reconcileMs, postSigningMs: opts.postSigningMs,
     });
@@ -417,6 +421,13 @@ export async function run({ config, flags, verbose }) {
           baseline,
           seen,
           getTransaction: (signature) => rpc.getTransaction(signature, 'confirmed').catch(() => null),
+          // Every refusal is recorded, with the check that refused it. Without
+          // this a missed payment is indistinguishable from no payment, which
+          // is exactly what happened on 2026-08-03.
+          onRejected: ({ signature, reason, detail }) => {
+            record('detect.rejected', { signature, reason, detail });
+            info(style.dim(`  rejected ${signature.slice(0, 12)}… — ${reason}`));
+          },
         });
         if (matches.length > 1) {
           record('detect.multiple_matches', { signatures: matches.map((m) => m.signature) });

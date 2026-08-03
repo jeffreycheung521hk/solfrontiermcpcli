@@ -187,14 +187,28 @@ export function verifyFundingTransaction(transaction, expected) {
  * signature that is fetched and fails validation is recorded in `seen` so it
  * is not fetched again.
  */
-export async function findFundingMatches({ rows, expected, baseline = new Set(), seen = new Set(), getTransaction }) {
+export async function findFundingMatches({
+  rows, expected, baseline = new Set(), seen = new Set(), getTransaction, onRejected,
+}) {
   const matches = [];
   for (const signature of selectCandidateSignatures(rows, baseline, seen)) {
     const transaction = await getTransaction(signature);
     if (!transaction) continue; // not yet visible; retry next pass
     const result = verifyFundingTransaction(transaction, expected);
-    if (result.ok) matches.push({ signature, proof: result.proof });
-    else seen.add(signature);
+    if (result.ok) {
+      matches.push({ signature, proof: result.proof });
+      continue;
+    }
+    // Report BEFORE blacklisting. A rejection is the only evidence of why a
+    // payment was not detected, and this loop used to discard it: on
+    // 2026-08-03 a correct payment sat unmatched for 220 seconds and the run
+    // could not afterwards say which check refused it, because nothing had
+    // recorded the reason. A search that cannot explain a miss cannot be
+    // debugged from its own output.
+    if (typeof onRejected === 'function') {
+      onRejected({ signature, reason: result.reason, detail: result.detail ?? null });
+    }
+    seen.add(signature);
   }
   return matches;
 }

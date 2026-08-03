@@ -462,6 +462,104 @@ plausible, and reads as an improvement.
   declarable via `--post-signing-ms` so that it can be argued with rather than
   believed.
 
+## Incident, 2026-08-03: the bug that lived between two layers
+
+Five live funding attempts. Four failed. The fifth succeeded only because a
+human noticed the silence and confirmed the payment by hand inside the window.
+
+The payment in the fourth attempt was perfect — correct memo, correct amount,
+correct payer, finalized at 11:26:01 against an 11:28:11 deadline, 130 seconds
+early. `flow` searched for it every second for the next 220 seconds and
+reported `no_signature_detected`.
+
+### The mechanism
+
+`rpc.mjs` called `getTransaction` without an `encoding` parameter:
+
+```js
+return this.call('getTransaction', [signature, { maxSupportedTransactionVersion: 0, commitment }]);
+```
+
+Solana's default encoding is `json`, not `jsonParsed`. Verified against the live
+endpoint with those exact parameters:
+
+```
+accountKeys[0] typeof : string      (not {pubkey, signer, writable})
+instructions[0] keys  : programIdIndex, accounts, data, stackHeight
+any ix has programId? : false
+any ix has parsed?    : false
+```
+
+Every check in `funding-proof.mjs` reads `programId`, `parsed`, and
+`accountKeys[].signer`. Under `json` none of those fields exist, so the very
+first gate — "did the registered payer sign?" — could not find a signer object
+and returned:
+
+```
+{"ok":false,"reason":"payer_did_not_sign"}
+```
+
+The payment was then added to `seen` and **never fetched again**. One
+millisecond of misjudgement became 220 seconds of silence.
+
+### Why nothing caught it
+
+Every layer was correct in isolation. Replaying the live data now, the listing
+returns the payment at index 1, selection picks it, and the validator accepts
+it with both deltas exact. The defect was not *inside* any layer — it was in
+the **contract between two layers**, and nothing asserted what crosses it.
+
+Each form of verification skipped exactly that boundary:
+
+| Verification | Why it missed |
+|---|---|
+| 28 funding-proof tests | hand a `jsonParsed` fixture straight to the validator, never travelling through `rpc.mjs` |
+| 8 hermetic end-to-end tests | the fake RPC ignores request parameters and always answers `jsonParsed` — **a fake that honours the client's intent rather than its request cannot detect a wrong request** |
+| the captured mainnet fixture | was itself fetched with `jsonParsed` explicitly set |
+| the first debugging replay | injected a hand-written `getTransaction` with `jsonParsed` — repeating the 2026-08-02 mistake of entering at the wrong layer |
+
+The middle row is the general lesson. A test double that returns what the
+caller *wants* rather than what the caller *asked for* silently certifies every
+malformed request as correct.
+
+### Two things that made it undebuggable
+
+**The rejection reason was discarded.** `findFundingMatches` did
+`else seen.add(signature)` — throwing away a precise `reason` and permanently
+blacklisting the signature. After the run, nothing could say which check had
+refused, because nothing had recorded it. A search that cannot explain a miss
+cannot be debugged from its own output.
+
+**The error class read like a verdict about the user.** `payer_did_not_sign`
+sounds like "the human failed to sign", so it invited no suspicion. It actually
+meant "the response shape has no signer field to look at". Absence read as a
+value — the same failure mode as a missing balance row defaulting to zero.
+
+### What changed
+
+- `getTransaction` names `jsonParsed` explicitly, and
+  `getSignaturesForAddress` names `confirmed` so the listing and the fetch agree
+  about which chain state they read.
+- **`test/rpc-request-shape.test.mjs` asserts the literal JSON-RPC request
+  body** against a recording loopback server. This is the actual fix; the
+  parameter was the symptom. Negative-controlled in both directions: reverting
+  the encoding fails 3 of its 5 tests, reverting the commitment fails 1.
+- Every rejection is now reported with its reason before the signature is
+  blacklisted.
+- The executor liveness check moved **before** finalize. It used to run after,
+  so the first attempt started the 180-second clock and *then* refused the
+  handoff; the retry recovered the same deterministic intent and offered the
+  human "approve within 33s" instead of 60. A refusal must not consume the
+  thing it is protecting.
+
+### Disposition
+
+No funds were lost. Four stranded amounts were recovered the same day through
+the refund rail — the first three within minutes of each other, the fourth in
+about three minutes — and the controlled ATA returned to exactly its
+pre-attempt balance each time. The fifth attempt completed the full pipeline:
+funding, confirmation, lease, and a Solend deposit at slot 436962139.
+
 ## Design decisions and why
 
 **Validation strictly before spawning.** A missing flag costs exit 2 and

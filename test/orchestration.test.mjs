@@ -150,9 +150,15 @@ describe('funding orchestration, end to end', () => {
         flowFlags: ['--reconcile-ms', '1000'],
       });
       assert.notEqual(r.code, 0, 'no executor means no handoff, and that is a failed run');
-      assert.equal(r.body?.status, 'handoff_withheld', `stderr: ${r.stderr}`);
+      assert.equal(r.body?.status, 'executor_not_running', `stderr: ${r.stderr}`);
       assert.equal(r.body.reason, 'executor_unreadable');
-      assert.match(r.stderr, /"type":"handoff\.executor_check"/);
+      assert.match(r.stderr, /"type":"preflight\.executor_check"/);
+      // The stronger property, and the one that cost half a window on
+      // 2026-08-03: the refusal happens BEFORE finalize, so it does not consume
+      // the funding clock it exists to protect. No intent id, because no intent
+      // was created.
+      assert.ok(!r.stderr.includes('"type":"finalize.ok"'), 'the clock must not start');
+      assert.equal(r.body.intentId, undefined);
       // Nothing signable may reach any output channel.
       assert.ok(!`${r.stdout}\n${r.stderr}`.includes('#payload='));
       assert.ok(!r.stderr.includes('"type":"detect.found"'));

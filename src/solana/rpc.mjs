@@ -55,16 +55,33 @@ export class SolanaRpc {
     return this.call('getAccountInfo', [pubkey, { encoding: 'base64', commitment }]);
   }
 
+  // `encoding` is NOT optional here, however harmless the default looks.
+  // Omitting it selects "json": compiled instructions ({programIdIndex,
+  // accounts, data}) and accountKeys as bare strings. Every check in
+  // funding-proof.mjs reads `programId`, `parsed` and `accountKeys[].signer`,
+  // which exist only under jsonParsed, so the default makes a perfectly
+  // correct payment fail at `payer_did_not_sign` -- and findFundingMatches
+  // discards the reason, so the client goes silent over money already on
+  // chain. That is the 2026-08-03 failure; the fixture never caught it
+  // because it was captured with jsonParsed explicitly requested.
   getTransaction(signature, commitment = 'finalized') {
-    return this.call('getTransaction', [signature, { maxSupportedTransactionVersion: 0, commitment }]);
+    return this.call('getTransaction', [
+      signature,
+      { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment },
+    ]);
   }
 
   getSignatureStatus(signature) {
     return this.call('getSignatureStatuses', [[signature], { searchTransactionHistory: true }]);
   }
 
-  getSignaturesForAddress(address, limit = 25) {
-    return this.call('getSignaturesForAddress', [address, { limit }]);
+  // The commitment is explicit and matches getTransaction's. Left implicit it
+  // defaults to `finalized` while the fetch runs at `confirmed`, so the listing
+  // and the fetch disagree about which chain state they are reading -- the
+  // listing lagging the fetch by a full finality interval, on the one path
+  // where seconds decide whether money is recorded.
+  getSignaturesForAddress(address, limit = 25, commitment = 'confirmed') {
+    return this.call('getSignaturesForAddress', [address, { limit, commitment }]);
   }
 
   async getTokenBalance(owner, mint) {
