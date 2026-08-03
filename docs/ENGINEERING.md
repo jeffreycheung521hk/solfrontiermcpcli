@@ -1,12 +1,16 @@
 # Engineering record
 
-State of this repository as of **2026-08-02**, written before the first
-real-money demonstration so that the known-good state is captured
-independently of whatever that run produces.
+State of this repository as of **2026-08-03**, at commit `02ea37a`.
 
-- Commits: `878b222` (implementation), `5539021` (CI fixes)
-- 28 tracked files, ~2,700 lines of JavaScript, zero runtime dependencies
+- 19 commits, 42 tracked files, ~4,300 lines of JavaScript, zero runtime
+  dependencies
+- 134 tests in 27 suites, every one of them offline
 - CI: green on `windows-latest` and `ubuntu-latest` × Node 20 and 22
+
+The first version of this file was written on 2026-08-02 *before* the first
+real-money run, so that the known-good state was captured independently of
+whatever that run produced. That run failed; the incident section below is
+the result, and the sections after it are the repairs.
 
 ## What this is
 
@@ -62,7 +66,8 @@ knows what a "quote" is.
 | Exact funding proof (selection → fetch → validation) | 28 tests driving the real captured 2026-08-02 payload | **proven offline** |
 | Replay defence (a payment older than the intent) | slot floor; 5 tests, including one the signature baseline cannot catch | **proven offline** |
 | Secrets withheld from spawned binaries; output redaction | 9 tests | **proven** |
-| `flow` — signing cutoff vs reconciliation window | 18 fake-clock tests, boundaries on both sides of each deadline | **proven offline** |
+| `flow` — approval cutoff, funding deadline, reconciliation window | 23 fake-clock tests, boundaries on both sides of all three | **proven offline** |
+| Stranded funds are recorded but reported as failure | exit code, label and event asserted separately from `recorded` | **proven offline** |
 | Funding orchestration (candidate → proof → confirm → `budget_reserved`) | 5 hermetic end-to-end runs against a fake RPC and fake MCP server | **proven offline** |
 | Executor lease and execution | **none — and out of scope here** | **not this repository's** |
 
@@ -121,11 +126,13 @@ transaction's own `accountKeys` rather than by owner+mint first match. The
 regressions now drive the real captured payload, prefix and all, through
 selection, fetch and validation.
 
-Two deadlines were also separated. The **signing cutoff** is the funding
-deadline: past it nothing new may be approved. The **reconciliation window**
-keeps searching for a further 90 seconds, because a payment can be on chain
-and on time while the RPC is slow to list it, and stopping at the cutoff is
-exactly how funds get transferred with nothing recorded.
+The single deadline was also split in two: past the **signing cutoff**
+nothing new may be approved, while the **reconciliation window** keeps
+searching for a further 90 seconds, because a payment can be on chain and on
+time while the RPC is slow to list it, and stopping at the cutoff is exactly
+how funds get transferred with nothing recorded. That first split placed the
+signing cutoff *at* the funding deadline, which was still wrong — see
+"Signing on time is not the same as signing in time" below.
 
 **Two further boundaries were found in that fix, before it was ever run.**
 
@@ -172,6 +179,55 @@ An independent cross-check that did land: `propose --amount 0.2
 `919f478e954582cece630e6b486edf4373d87daa3a64caea6b6aef3291d2fbbd`, byte-identical
 to the value recorded in the 2026-08-01 acceptance document. Two independent
 implementations agree on the canonical hash.
+
+## Signing on time is not the same as signing in time
+
+Found by review on 2026-08-03, before any further funds were committed, and
+fixed in `02ea37a`.
+
+Both stranded amounts were paid **inside** their funding window and both are
+permanently unexecutable. That is not a coincidence, and treating the funding
+deadline as the signing cutoff is what allows it: a payment approved one
+millisecond before expiry is on time by every check the system performs, and
+still doomed, because signing is not the last step. After it come reserve
+freshness, RPC visibility, confirmation, and the executor's scan, final
+revalidation, CAS lease, simulation, policy and broadcast. None of them have
+any time left.
+
+So there is now an approval cutoff, earlier than the funding deadline by a
+budget **derived from its parts rather than chosen**:
+
+| Component | Budget | Where the figure comes from |
+|---|---|---|
+| Solend reserve refresh | 60 s | measured 2026-08-01: fresh ~6.4 s in every ~60 s |
+| RPC visibility + one confirm | 20 s | the client's default per-request timeout |
+| Executor cycle | 40 s | scan, revalidation, CAS, simulation, policy, sign, broadcast |
+| **Total** | **120 s** | |
+
+In a 180-second window that leaves a human the first 60 seconds. A test
+asserts the total equals the sum of its components, so a future edit that
+lowers the figure without changing the reasoning fails the build.
+
+Between the approval cutoff and the funding deadline the run enters a **grace
+period**: nothing new may be approved, but anything already broadcast is
+still searched for and confirmed. Countdowns pace against the approval
+cutoff, because the funding deadline is not the number a human should be
+working to.
+
+**A green exit over stranded money.** Separately, a `budget_reserved` that
+had already expired exited `0`. The JSON said `executable: false` while the
+exit code — the part automation actually reads — said success. Two questions
+had been merged that are not the same question:
+
+- **`recorded`** — did the payment reach the chain and the ledger agree? For
+  money that has moved, this must be true even when it is too late to use,
+  or the database and the chain diverge.
+- **`runSuccess`** — did the run achieve what it set out to? Funds that can
+  never be leased are a failed run, however tidy the bookkeeping.
+
+`flow` now exits non-zero when the funds are unusable, and emits
+`confirm.recorded_but_expired` rather than `confirm.ok`, so an audit reading
+the event stream finds no success marker over stranded money.
 
 ## Design decisions and why
 
