@@ -6,3 +6,6 @@ scratch/
 
 node_modules/
 *.log
+# hackathon: personal configs and live audit logs (repo root only)
+/sfgate.*.json
+/sfgate-audit*.jsonl
