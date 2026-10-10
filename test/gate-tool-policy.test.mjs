@@ -5,10 +5,13 @@
 // reason as gate-core's env-echo: test/fixtures/ belongs to another card). It
 // appends every tools/call it receives to a file, which is how these tests
 // prove that a refused call never reached the downstream at all.
-import { test, describe } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 import { generateKeyPairSync } from 'node:crypto';
 
 import {
@@ -22,7 +25,9 @@ import {
   REFUSAL_CODES,
 } from '../src/gate/tool-policy.mjs';
 import { base58Encode } from '../src/gate/config.mjs';
-import { ROOT } from './helpers.mjs';
+import { verifyChainText } from '../src/gate/audit-log.mjs';
+import { LineFramer } from '../src/mcp/framing.mjs';
+import { CLI, ROOT } from './helpers.mjs';
 
 const runtimeAddress = () => base58Encode(Buffer.from(generateKeyPairSync('ed25519').publicKey.export({ format: 'jwk' }).x, 'base64url'));
 const ALLOWED = runtimeAddress();
@@ -501,5 +506,320 @@ describe('listing', () => {
     assert.deepEqual(summary.rules.map((r) => r.rule), ['wallet.get_balance', 'wallet.transfer_sol', 'wallet.sign_and_send', 'wallet.admin_*', 'wallet.token_info', '*']);
     assert.equal(summary.rules[2].txArg, 'transaction');
     assert.match(summary.rules[1].allows, /0 ≤ amount ≤ 0\.05/);
+  });
+});
+
+// --- gate run, end to end ----------------------------------------------------
+
+// Lists wallet-shaped tools and appends every tools/call it receives to the
+// --record file. --marker writes a file at startup (proves "never spawned").
+const RECORDER_SOURCE = `
+import process from 'node:process';
+import { appendFileSync, writeFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+const valueOf = (f) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : undefined; };
+if (valueOf('--marker')) writeFileSync(valueOf('--marker'), 'started');
+const record = valueOf('--record');
+const tool = (name, properties = {}) => ({ name, description: 'Recorder ' + name + '.', inputSchema: { type: 'object', properties } });
+const TOOLS = [
+  tool('get_balance'),
+  tool('transfer_sol', { to: { type: 'string' }, amount: { type: 'number' } }),
+  tool('sign_and_send', { transaction: { type: 'string' } }),
+  tool('token_info', { mint: { type: 'string' } }),
+  tool('admin_drain'),
+];
+const send = (obj) => process.stdout.write(JSON.stringify(obj) + '\\n');
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buf += chunk;
+  let nl;
+  while ((nl = buf.indexOf('\\n')) >= 0) {
+    const line = buf.slice(0, nl).trim();
+    buf = buf.slice(nl + 1);
+    if (!line) continue;
+    const msg = JSON.parse(line);
+    if (msg.id === undefined) continue;
+    if (msg.method === 'initialize') {
+      send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'recorder', version: '0' } } });
+    } else if (msg.method === 'tools/list') {
+      send({ jsonrpc: '2.0', id: msg.id, result: { tools: TOOLS } });
+    } else if (msg.method === 'tools/call') {
+      const call = { name: msg.params?.name, arguments: msg.params?.arguments ?? {} };
+      if (record) appendFileSync(record, JSON.stringify(call) + '\\n');
+      send({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify({ called: call.name }) }], isError: false } });
+    } else {
+      send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'method not found' } });
+    }
+  }
+});
+`;
+
+let dir;
+let RECORDER;
+before(() => {
+  dir = mkdtempSync(path.join(tmpdir(), 'sfgate-policy-'));
+  RECORDER = path.join(dir, 'recorder.mjs');
+  writeFileSync(RECORDER, RECORDER_SOURCE);
+});
+after(() => rmSync(dir, { recursive: true, force: true }));
+
+const GATE_POLICY = {
+  'wallet.get_balance': 'pass',
+  'wallet.transfer_sol': TRANSFER_RULE,
+  'wallet.sign_and_send': { mode: 'bound', txArg: 'transaction', txArgEncoding: 'base64' },
+  'wallet.admin_*': 'deny',
+  '*': 'deny',
+};
+
+let n = 0;
+/** A gate config in its own directory; the recorder downstream logs to calls.jsonl there. `tools: null` omits the key. */
+function gateFixture({ tools = GATE_POLICY, extra = {}, serverArgs = [] } = {}) {
+  const caseDir = mkdtempSync(path.join(dir, `case-${++n}-`));
+  const record = path.join(caseDir, 'calls.jsonl');
+  const file = path.join(caseDir, 'sfgate.json');
+  writeFileSync(
+    file,
+    JSON.stringify({
+      cluster: 'devnet',
+      upstreamRpcEnv: 'SFGATE_UPSTREAM_RPC_URL',
+      approver: runtimeAddress(),
+      servers: { wallet: { command: 'node', args: [RECORDER, '--record', record, ...serverArgs] } },
+      lists: { allowlist: [ALLOWED] },
+      ...(tools === null ? {} : { tools }),
+      audit: { path: './audit.jsonl' },
+      ...extra,
+    }),
+  );
+  return { file, record, audit: path.join(caseDir, 'audit.jsonl'), caseDir };
+}
+
+function gateEnv() {
+  const env = { ...process.env, SFGATE_UPSTREAM_RPC_URL: 'https://rpc.example.test/' };
+  for (const k of Object.keys(env)) if (/^SFGATE_/i.test(k) && k !== 'SFGATE_UPSTREAM_RPC_URL') delete env[k];
+  return env;
+}
+
+function startGate(configPath) {
+  const child = spawn(process.execPath, [CLI, 'gate', 'run', configPath], { cwd: ROOT, env: gateEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+  const framer = new LineFramer();
+  const stdoutLines = [];
+  const waiters = new Map();
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (d) => (stderr += d));
+  child.stdout.on('data', (chunk) => {
+    for (const line of framer.push(chunk)) {
+      stdoutLines.push(line);
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      waiters.get(msg.id)?.(msg);
+    }
+  });
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  let nextId = 1;
+  return {
+    stdoutLines,
+    get stderr() {
+      return stderr;
+    },
+    request(method, params, ms = 15000) {
+      const id = nextId++;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${method} timed out; stderr:\n${stderr}`)), ms);
+        waiters.set(id, (msg) => (clearTimeout(timer), resolve(msg)));
+        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      });
+    },
+    async call(name, args) {
+      return (await this.request('tools/call', { name, arguments: args })).result;
+    },
+    // Always called in `finally`: a failed assertion must not leave a child
+    // holding the test runner open.
+    stop() {
+      child.stdin.end();
+      return exited;
+    },
+  };
+}
+
+const readJsonl = (file) => (existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+
+describe('gate run with a tool policy (stdio)', () => {
+  test('bound violations, denies and txArg tools are refused before the downstream; allowed calls forward', async () => {
+    const fx = gateFixture();
+    const gate = startGate(fx.file);
+    let list;
+    const results = {};
+    try {
+      await gate.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+      list = (await gate.request('tools/list', {})).result.tools;
+      results.tooMuch = await gate.call('wallet__transfer_sol', { to: ALLOWED, amount: 5 });
+      results.attacker = await gate.call('wallet__transfer_sol', { to: ATTACKER, amount: 0.01 });
+      results.decimal = await gate.call('wallet__transfer_sol', { to: ALLOWED, amount: '0.01' });
+      results.signAndSend = await gate.call('wallet__sign_and_send', { transaction: 'AQAB' });
+      results.admin = await gate.call('wallet__admin_drain', {});
+      results.unlisted = await gate.call('wallet__token_info', { mint: ALLOWED });
+      results.nowhere = await gate.call('wallet__not_a_real_tool', {});
+      results.okTransfer = await gate.call('wallet__transfer_sol', { to: ALLOWED, amount: 0.05 });
+      results.balance = await gate.call('wallet__get_balance', {});
+      results.status = await gate.call('gate__status', {});
+    } finally {
+      assert.equal(await gate.stop(), 0, gate.stderr);
+    }
+
+    // tools/list: denied and unlisted tools hidden; the bound ones guarded.
+    const names = list.map((t) => t.name).sort();
+    assert.deepEqual(names, ['gate__status', 'wallet__get_balance', 'wallet__sign_and_send', 'wallet__transfer_sol']);
+    const byName = Object.fromEntries(list.map((t) => [t.name, t]));
+    assert.equal(byName.wallet__get_balance.description, 'Recorder get_balance.');
+    assert.equal(
+      byName.wallet__transfer_sol.description,
+      'Recorder transfer_sol. [Guarded by SolFrontier Gate: to in @allowlist (1 value); 0 ≤ amount ≤ 0.05; transactions need human approval]',
+    );
+    assert.match(byName.wallet__sign_and_send.description, /\[Guarded by SolFrontier Gate: transaction: a base64 transaction/);
+
+    // The stable codes, as CallToolResults with isError.
+    const expected = {
+      tooMuch: ['arg_out_of_bounds', 'wallet.transfer_sol'],
+      attacker: ['arg_not_allowed', 'wallet.transfer_sol'],
+      decimal: ['arg_type', 'wallet.transfer_sol'],
+      signAndSend: ['approval_unavailable', 'wallet.sign_and_send'],
+      admin: ['tool_denied', 'wallet.admin_*'],
+      unlisted: ['unknown_tool', '*'],
+      nowhere: ['unknown_tool', '*'],
+    };
+    for (const [key, [code, rule]] of Object.entries(expected)) {
+      const r = results[key];
+      assert.equal(r.isError, true, key);
+      assert.equal(r.structuredContent.gate, 'refused', key);
+      assert.equal(r.structuredContent.code, code, key);
+      assert.equal(r.structuredContent.rule, rule, key);
+      assert.deepEqual(JSON.parse(r.content[0].text), r.structuredContent, key);
+      assert.equal(typeof r.structuredContent.hint, 'string', key);
+    }
+    const [v] = results.tooMuch.structuredContent.violations;
+    assert.deepEqual(v, { code: 'arg_out_of_bounds', path: 'amount', observed: 5, bound: '<= 0.05', message: 'amount must be <= 0.05, got 5' });
+    assert.match(results.tooMuch.structuredContent.hint, /0 ≤ amount ≤ 0\.05/);
+
+    // Allowed calls reached the downstream; nothing refused did.
+    assert.deepEqual(JSON.parse(results.okTransfer.content[0].text), { called: 'transfer_sol' });
+    assert.deepEqual(JSON.parse(results.balance.content[0].text), { called: 'get_balance' });
+    assert.deepEqual(readJsonl(fx.record), [
+      { name: 'transfer_sol', arguments: { to: ALLOWED, amount: 0.05 } },
+      { name: 'get_balance', arguments: {} },
+    ]);
+
+    // gate__status reports the real policy.
+    const policy = results.status.structuredContent.policy;
+    assert.equal(policy.defaultDeny, true);
+    assert.deepEqual(policy.rules.map((r) => r.rule), Object.keys(GATE_POLICY));
+
+    // I10: stdout carried JSON-RPC frames only.
+    for (const line of gate.stdoutLines) {
+      const msg = JSON.parse(line);
+      assert.equal(msg.jsonrpc, '2.0', line);
+      assert.ok('result' in msg || 'error' in msg, line);
+    }
+
+    // Audit: chain verifies; each refusal is a tool_call with decision "deny"
+    // and no tool_result; each forward is logged before its result (I6).
+    const auditText = readFileSync(fx.audit, 'utf8');
+    assert.ok(verifyChainText(auditText).ok);
+    const records = auditText.trim().split('\n').map((l) => JSON.parse(l));
+    assert.deepEqual(records[0].policy.rules.map((r) => r.mode), ['pass', 'bound', 'bound', 'deny', 'deny'], 'gate_start records the policy');
+    const calls = records.filter((r) => r.type === 'tool_call' && r.tool !== 'gate__status');
+    const resultsFor = (callId) => records.filter((r) => r.type === 'tool_result' && r.callId === callId);
+    const refused = calls.filter((r) => r.decision === 'deny');
+    assert.deepEqual(refused.map((r) => r.code), Object.values(expected).map(([code]) => code));
+    for (const r of refused) {
+      assert.equal(resultsFor(r.callId).length, 0, `${r.tool} ${r.code} has a tool_result`);
+      assert.ok(Array.isArray(r.violations));
+    }
+    const tooMuchRecord = refused[0];
+    assert.equal(tooMuchRecord.rule, 'wallet.transfer_sol');
+    assert.equal(tooMuchRecord.mode, 'bound');
+    assert.deepEqual(tooMuchRecord.args, { to: ALLOWED, amount: 5 });
+    assert.deepEqual(tooMuchRecord.violations.map((x) => x.code), ['arg_out_of_bounds']);
+    assert.equal(refused[3].txArg, 'transaction');
+    const forwarded = calls.filter((r) => r.decision !== 'deny');
+    assert.deepEqual(forwarded.map((r) => [r.tool, r.decision, r.rule]), [
+      ['wallet__transfer_sol', 'bound', 'wallet.transfer_sol'],
+      ['wallet__get_balance', 'pass', 'wallet.get_balance'],
+    ]);
+    for (const r of forwarded) {
+      const [res] = resultsFor(r.callId);
+      assert.ok(res && records.indexOf(r) < records.indexOf(res), `${r.tool}: log, then act`);
+    }
+    const listRecord = records.find((r) => r.type === 'tool_list');
+    assert.equal(listRecord.hidden, 2);
+  });
+
+  test('showDeniedTools: true lists explicit denies with [denied]; unmatched tools stay hidden; calls still refused', async () => {
+    const fx = gateFixture({ extra: { showDeniedTools: true } });
+    const gate = startGate(fx.file);
+    let list;
+    let admin;
+    try {
+      await gate.request('initialize', { protocolVersion: '2025-06-18' });
+      list = (await gate.request('tools/list', {})).result.tools;
+      admin = await gate.call('wallet__admin_drain', {});
+    } finally {
+      assert.equal(await gate.stop(), 0, gate.stderr);
+    }
+    const byName = Object.fromEntries(list.map((t) => [t.name, t]));
+    assert.deepEqual(Object.keys(byName).sort(), ['gate__status', 'wallet__admin_drain', 'wallet__get_balance', 'wallet__sign_and_send', 'wallet__transfer_sol']);
+    assert.equal(byName.wallet__admin_drain.description, 'Recorder admin_drain. [denied]');
+    assert.ok(!('wallet__token_info' in byName), 'a tool only "*" matches is never listed (I1)');
+    assert.equal(admin.structuredContent.code, 'tool_denied');
+    assert.deepEqual(readJsonl(fx.record), []);
+  });
+
+  test('a config without any tools rule exposes nothing but gate__status (default deny)', async () => {
+    const fx = gateFixture({ tools: null });
+    const gate = startGate(fx.file);
+    let list;
+    let res;
+    try {
+      await gate.request('initialize', { protocolVersion: '2025-06-18' });
+      list = (await gate.request('tools/list', {})).result.tools;
+      res = await gate.call('wallet__get_balance', {});
+    } finally {
+      assert.equal(await gate.stop(), 0, gate.stderr);
+    }
+    assert.deepEqual(list.map((t) => t.name), ['gate__status']);
+    assert.equal(res.structuredContent.code, 'unknown_tool');
+    assert.equal(res.structuredContent.rule, null);
+    assert.deepEqual(readJsonl(fx.record), []);
+  });
+
+  test('policy errors are exit 2 at load time: nothing spawned, nothing on stdout', async () => {
+    const cases = [
+      [{ 'wallet.get_balance': 'allow' }, /tools\["wallet\.get_balance"\]: mode must be one of/],
+      [{ 'wallet.transfer_sol': { mode: 'bound', args: { amount: { type: 'number', max: 1 } } } }, /unknown constraint key "max"/],
+      [{ 'wallet.transfer_sol': { mode: 'bound', args: { to: { type: 'string', in: '@friends' } } } }, /lists has no "friends"/],
+      [{ 'wallet.sign_and_send': { mode: 'bound', txArg: '' } }, /txArg must name the argument/],
+      [{ 'walet.get_balance': 'pass' }, /no server named "walet"/],
+      [{ '*': 'pass' }, /may only be "deny"/],
+    ];
+    for (const [tools, re] of cases) {
+      const fx = gateFixture({ tools });
+      const marker = path.join(fx.caseDir, 'spawned');
+      // Rewrite with a startup marker so a spawn would leave evidence.
+      const cfg = JSON.parse(readFileSync(fx.file, 'utf8'));
+      cfg.servers.wallet.args.push('--marker', marker);
+      writeFileSync(fx.file, JSON.stringify(cfg));
+      const gate = startGate(fx.file);
+      const code = await gate.stop();
+      assert.equal(code, 2, gate.stderr);
+      assert.match(gate.stderr, re);
+      assert.equal(gate.stdoutLines.length, 0);
+      assert.ok(!existsSync(marker), 'a downstream was spawned');
+      assert.ok(!existsSync(fx.audit), 'the audit log was opened before the policy compiled');
+    }
   });
 });

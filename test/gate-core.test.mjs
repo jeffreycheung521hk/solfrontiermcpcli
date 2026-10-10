@@ -517,7 +517,8 @@ function baseEnv(extra = {}) {
 describe('gate run (stdio round trip)', () => {
   test('host -> gate -> fake server: initialize, tools/list, tools/call verbatim; stdout is pure JSON-RPC', async () => {
     const g = gateEnv();
-    const file = writeGateConfig({ fake: { command: 'node', args: [FAKE, '--noisy-stderr'] } });
+    // T2: default deny (I1); this round trip is about forwarding, so pass both tools.
+    const file = writeGateConfig({ fake: { command: 'node', args: [FAKE, '--noisy-stderr'] } }, { tools: { 'fake.*': 'pass' } });
     const env = baseEnv({ SFGATE_UPSTREAM_RPC_URL: g.url, SFGATE_PETTY_CASH_PATH: g.kpFile });
     const gate = startGate(file, env);
 
@@ -586,7 +587,7 @@ describe('gate run (stdio round trip)', () => {
         // Test-only: hand the downstream copies of Gate's secrets so it can leak them.
         env: { LEAK_URL: g.url, LEAK_WS: wsUrl },
       },
-    });
+    }, { tools: { 'echo.leak': 'pass' } });
     const env = baseEnv({ SFGATE_UPSTREAM_RPC_URL: g.url, SFGATE_PETTY_CASH_PATH: g.kpFile });
     // --verbose echoes downstream stderr, which is where a leak would show.
     const gate = startGate(file, env, ['--verbose']);
