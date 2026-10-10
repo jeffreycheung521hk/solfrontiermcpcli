@@ -20,6 +20,7 @@ import * as callCmd from './commands/call.mjs';
 import * as doctorCmd from './commands/doctor.mjs';
 import * as auditCmd from './commands/audit.mjs';
 import * as flowCmd from './commands/flow.mjs';
+import * as gateCmd from './commands/gate.mjs';
 import { quote, position, status, propose, finalize, confirm } from './commands/intent.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,8 @@ const REGISTRY = {
   doctor: { ...doctorCmd, needsServer: true },
   flow: { ...flowCmd, needsServer: true },
   audit: { ...auditCmd, needsServer: false },
+  // Gate reads its own config (src/gate/config.mjs), not sfcli.config.json.
+  gate: { ...gateCmd, needsServer: false },
   quote: { spec: quote.spec, run: quote.run, validate: quote.validate, needsServer: true },
   position: { spec: position.spec, run: position.run, validate: position.validate, needsServer: true },
   status: { spec: status.spec, run: status.run, validate: status.validate, needsServer: true },
