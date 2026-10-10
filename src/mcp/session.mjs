@@ -98,6 +98,7 @@ export class McpSession {
   #verbose;
   #timeoutMs;
   #onFrame;
+  #stdioClosed = null;
 
   constructor({
     serverBin,
@@ -147,6 +148,14 @@ export class McpSession {
     return this.redact(redactSensitive(text));
   }
 
+  /**
+   * Resolves when the child's stdio has fully closed — after `exit`, which
+   * can fire while stderr is still draining (notably on Windows).
+   */
+  get stdioClosed() {
+    return this.#stdioClosed ?? Promise.resolve();
+  }
+
   /** `{ code, signal }` once the child has exited, else null. */
   get exitInfo() {
     return this.#exitInfo;
@@ -160,6 +169,11 @@ export class McpSession {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: this.childEnv(),
       ...(this.cwd ? { cwd: this.cwd } : {}),
+    });
+
+    this.#stdioClosed = new Promise((resolve) => {
+      this.#child.once('close', resolve);
+      this.#child.once('error', resolve);
     });
 
     this.#child.on('error', (err) => {

@@ -124,13 +124,15 @@ export function startDownstreams(config, options = {}) {
       } catch (err) {
         entry.state = 'failed';
         entry.error = redact(err?.message ?? String(err));
+        // Let a dying child's last stderr lines arrive before showing the tail.
+        await entry.session?.close().catch(() => {});
+        await Promise.race([entry.session?.stdioClosed, new Promise((r) => setTimeout(r, 500).unref())]);
         // The stderr tail goes to the human (stderr) only: it is the server's
         // free text, so it never enters the audit log.
         audit?.append('downstream_failed', { server: name, error: entry.error });
         log(`[gate] downstream ${name} failed: ${entry.error}`);
         const tail = entry.session?.stderrTail || err?.details?.stderrTail;
         if (tail) for (const line of String(tail).split('\n').slice(-8)) log(redact(`[gate]   ${name}| ${line}`));
-        await entry.session?.close().catch(() => {});
       }
     })();
   }
