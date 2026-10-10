@@ -1,6 +1,7 @@
 // Loopback fake of the Solana JSON-RPC methods Gate and the naive wallet fixture use, for
-// hermetic end-to-end tests (SPEC section 7). Scripted, not stateful: a test states the answers,
-// then asserts on `calls` and `sent`. No network, binds port 0 for parallel test files.
+// hermetic end-to-end tests (SPEC section 7). Tests script review state, then assert on `calls`
+// and `sent`; accepted transactions are retrievable by signature for audit checks. No network,
+// binds port 0 for parallel test files.
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 
@@ -184,9 +185,20 @@ export async function startFakeUpstream(script = {}) {
         };
         break;
       }
-      case 'getTransaction':
-        result = lookup(script.transactions, params?.[0]) ?? null;
+      case 'getTransaction': {
+        const signature = params?.[0];
+        const scripted = lookup(script.transactions, signature);
+        const accepted = sent.find((tx) => tx.signature === signature);
+        // Explicit null means a test wants an accepted send to be unavailable.
+        // Only an absent script entry falls back to the exact wire bytes we accepted.
+        result = scripted !== undefined ? scripted : accepted ? {
+          slot: 1,
+          blockTime: null,
+          meta: { err: null, fee: 5000, logMessages: [] },
+          transaction: [Buffer.from(accepted.bytes).toString('base64'), 'base64'],
+        } : null;
         break;
+      }
       default:
         return { jsonrpc: '2.0', id, error: { code: -32601, message: `unmocked: ${method}` } };
     }

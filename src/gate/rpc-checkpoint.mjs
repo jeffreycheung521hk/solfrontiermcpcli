@@ -31,6 +31,7 @@ import { createServer } from 'node:http';
 import net from 'node:net';
 import tls from 'node:tls';
 import { redactSensitive } from '../mcp/session.mjs';
+import { decode } from '../solana/base58.mjs';
 
 /** JSON-RPC error codes this checkpoint emits (SPEC §5.7). */
 export const RPC_SEND_REFUSED = -32099;
@@ -524,7 +525,12 @@ export function decodeSendParams(params) {
   // cap leaves room for larger transactions while keeping a 2 MB string out
   // of the quadratic base58 decoder.
   if (tx.length > MAX_TX_CHARS) return { error: 'transaction is too long' };
-  const bytes = encoding === 'base64' ? decodeBase64Strict(tx) : decodeBase58(tx);
+  let bytes;
+  try {
+    bytes = encoding === 'base64' ? decodeBase64Strict(tx) : decode(tx);
+  } catch {
+    return { error: `transaction is not valid ${encoding}` };
+  }
   if (!bytes || bytes.length === 0) return { error: `transaction is not valid ${encoding}` };
   return { bytes, encoding };
 }
@@ -532,33 +538,6 @@ export function decodeSendParams(params) {
 function decodeBase64Strict(text) {
   const buf = Buffer.from(text, 'base64');
   return buf.toString('base64') === text ? Uint8Array.from(buf) : null;
-}
-
-// Private on purpose: T3's src/solana/base58.mjs lands on a parallel branch;
-// I1 swaps it in (SPEC §4). Bitcoin alphabet; leading '1's are zero bytes.
-const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const B58_INDEX = new Map([...B58_ALPHABET].map((c, i) => [c, i]));
-
-function decodeBase58(text) {
-  const digits = []; // base-256, least significant first
-  for (const ch of text) {
-    let carry = B58_INDEX.get(ch);
-    if (carry === undefined) return null;
-    for (let i = 0; i < digits.length; i++) {
-      carry += digits[i] * 58;
-      digits[i] = carry & 0xff;
-      carry >>= 8;
-    }
-    while (carry > 0) {
-      digits.push(carry & 0xff);
-      carry >>= 8;
-    }
-  }
-  let zeros = 0;
-  while (zeros < text.length && text[zeros] === '1') zeros += 1;
-  const out = new Uint8Array(zeros + digits.length);
-  for (let i = 0; i < digits.length; i++) out[out.length - 1 - i] = digits[i];
-  return out;
 }
 
 function isPlainObject(v) {
