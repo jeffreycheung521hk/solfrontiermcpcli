@@ -7,14 +7,14 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { PassThrough } from 'node:stream';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 
-import { McpSession, stripChildEnv } from '../src/mcp/session.mjs';
+import { McpSession, stripChildEnv, withSession } from '../src/mcp/session.mjs';
 import { CLI, FAKE, ROOT } from './helpers.mjs';
 
 // Reports what it was given without ever echoing a value that could be a
@@ -145,7 +145,9 @@ describe('McpSession additions', () => {
       assert.ok(!report.envNames.includes('GATE_NAMED_VAR'));
       assert.ok(report.envNames.includes('PRIVATE_KEY'), 'explicit injection wins over the blocklist');
       assert.equal(report.rpc, 'http://127.0.0.1:9');
-      assert.equal(path.resolve(report.cwd), path.resolve(dir));
+      // realpath both sides: macOS tmpdir() is /var/folders/..., a symlink to
+      // /private/var/..., and the child's process.cwd() reports the latter.
+      assert.equal(realpathSync(report.cwd), realpathSync(dir));
     } finally {
       await s.close();
       if (prev === undefined) delete process.env.SFGATE_TEST_HIDDEN;
@@ -400,12 +402,15 @@ describe('downstreams', () => {
             assert.ok(!report.envNames.includes(blocked), `${blocked} reached the downstream`);
           }
           assert.equal(report.execPath, process.execPath);
-          assert.equal(path.resolve(report.cwd), path.resolve(dir));
+          assert.equal(realpathSync(report.cwd), realpathSync(dir)); // see McpSession additions
           assert.ok(!report.argv.includes('--db'));
         }
         await ds.close();
       }
     } finally {
+      // Also when an assertion threw mid-loop: live downstreams keep node
+      // --test from ever exiting. close() is idempotent.
+      await ds?.close();
       for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
       Object.assign(process.env, saved);
     }
@@ -423,31 +428,37 @@ describe('downstreams', () => {
     const audit = AuditLog.open(config.audit.path);
     const logged = [];
     const ds = startDownstreams(config, { audit, log: (l) => logged.push(l) });
-    await ds.ready;
-    const status = Object.fromEntries(ds.status().map((s) => [s.server, s]));
-    assert.equal(status.bad.state, 'failed');
-    assert.equal(status.good.state, 'ready');
-    assert.deepEqual(ds.list().map((t) => t.name).sort(), ['good__echo_tool', 'good__strict_tool']);
-    const result = await ds.call('good', 'echo_tool', { text: 'still works' });
-    assert.equal(JSON.parse(result.content[0].text).echoed.text, 'still works');
-    await assert.rejects(ds.call('bad', 'env_report', {}), /not available/);
-    await assert.rejects(ds.call('good', 'unlisted', {}), /did not list/);
-    assert.ok(logged.some((l) => l.includes('boom: cannot start')), 'stderr tail is shown to the human');
-    const text = readFileSync(config.audit.path, 'utf8');
-    assert.ok(verifyChainText(text).ok);
-    const types = text.trim().split('\n').map((l) => JSON.parse(l).type).sort();
-    assert.deepEqual(types, ['downstream_failed', 'downstream_ready']);
-    assert.ok(!text.includes('boom: cannot start'), 'server free text stays out of the audit log');
-    await ds.close();
+    try {
+      await ds.ready;
+      const status = Object.fromEntries(ds.status().map((s) => [s.server, s]));
+      assert.equal(status.bad.state, 'failed');
+      assert.equal(status.good.state, 'ready');
+      assert.deepEqual(ds.list().map((t) => t.name).sort(), ['good__echo_tool', 'good__strict_tool']);
+      const result = await ds.call('good', 'echo_tool', { text: 'still works' });
+      assert.equal(JSON.parse(result.content[0].text).echoed.text, 'still works');
+      await assert.rejects(ds.call('bad', 'env_report', {}), /not available/);
+      await assert.rejects(ds.call('good', 'unlisted', {}), /did not list/);
+      assert.ok(logged.some((l) => l.includes('boom: cannot start')), 'stderr tail is shown to the human');
+      const text = readFileSync(config.audit.path, 'utf8');
+      assert.ok(verifyChainText(text).ok);
+      const types = text.trim().split('\n').map((l) => JSON.parse(l).type).sort();
+      assert.deepEqual(types, ['downstream_failed', 'downstream_ready']);
+      assert.ok(!text.includes('boom: cannot start'), 'server free text stays out of the audit log');
+    } finally {
+      await ds.close();
+    }
   });
 
   test('tool names that are not host-safe are skipped; splitToolName', async () => {
     const file = writeGateConfig({ e: { command: 'node', args: [ENV_ECHO] } }, { pettyCash: undefined });
     const config = loadGateConfig(file, { SFGATE_UPSTREAM_RPC_URL: 'https://a.test' });
     const ds = startDownstreams(config, { log: () => {} });
-    await ds.ready;
-    assert.deepEqual(ds.list().map((t) => t.name).sort(), ['e__client_reply', 'e__env_report', 'e__leak']);
-    await ds.close();
+    try {
+      await ds.ready;
+      assert.deepEqual(ds.list().map((t) => t.name).sort(), ['e__client_reply', 'e__env_report', 'e__leak']);
+    } finally {
+      await ds.close();
+    }
     assert.deepEqual(splitToolName('my-srv__do__it'), { server: 'my-srv', tool: 'do__it' });
     assert.equal(splitToolName('__x'), null);
     assert.equal(splitToolName('plain'), null);
@@ -501,9 +512,18 @@ function startGate(configPath, env, extraArgs = []) {
     notify(method, params) {
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
     },
-    async stop() {
+    // EOF, as a host does; terminate if the gate has not exited by graceMs.
+    // Safe to call again, so finally blocks can: a test that fails mid-way
+    // must never leave the gate and its downstreams holding the runner open,
+    // and a wedged gate fails its exit-code assertion (null) instead.
+    async stop(graceMs = 10000) {
       child.stdin.end();
-      return exited;
+      const timer = setTimeout(() => child.kill(), graceMs);
+      try {
+        return await exited;
+      } finally {
+        clearTimeout(timer);
+      }
     },
   };
 }
@@ -520,37 +540,40 @@ describe('gate run (stdio round trip)', () => {
     // T2: default deny (I1); this round trip is about forwarding, so pass both tools.
     const file = writeGateConfig({ fake: { command: 'node', args: [FAKE, '--noisy-stderr'] } }, { tools: { 'fake.*': 'pass' } });
     const env = baseEnv({ SFGATE_UPSTREAM_RPC_URL: g.url, SFGATE_PETTY_CASH_PATH: g.kpFile });
-    const gate = startGate(file, env);
-
-    const init = await gate.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } });
-    assert.equal(init.result.serverInfo.name, 'solfrontier-gate');
-    gate.notify('notifications/initialized', {});
-
-    const list = await gate.request('tools/list', {});
-    const names = list.result.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, ['fake__echo_tool', 'fake__strict_tool', 'gate__status']);
 
     // What the fake server returns when called directly, for comparison.
-    const direct = new McpSession({ serverBin: process.execPath, serverArgs: [FAKE], appendDb: false }).start();
-    await direct.initialize();
-    const expected = await direct.callToolRaw('echo_tool', { text: 'hello', count: 2 });
-    await direct.close();
+    const expected = await withSession({ serverBin: process.execPath, serverArgs: [FAKE], appendDb: false }, (direct) =>
+      direct.callToolRaw('echo_tool', { text: 'hello', count: 2 }),
+    );
 
-    const call = await gate.request('tools/call', { name: 'fake__echo_tool', arguments: { text: 'hello', count: 2 } });
-    assert.deepEqual(call.result, expected, 'result forwarded verbatim');
+    const gate = startGate(file, env);
+    try {
+      const init = await gate.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+      assert.equal(init.result.serverInfo.name, 'solfrontier-gate');
+      gate.notify('notifications/initialized', {});
 
-    const status = await gate.request('tools/call', { name: 'gate__status', arguments: {} });
-    assert.equal(status.result.structuredContent.wallet, g.kp.publicKey);
-    assert.equal(status.result.structuredContent.downstreams[0].state, 'ready');
+      const list = await gate.request('tools/list', {});
+      const names = list.result.tools.map((t) => t.name).sort();
+      assert.deepEqual(names, ['fake__echo_tool', 'fake__strict_tool', 'gate__status']);
 
-    const unknown = await gate.request('tools/call', { name: 'fake__nope', arguments: {} });
-    assert.equal(unknown.result.isError, true);
-    assert.equal(unknown.result.structuredContent.code, 'unknown_tool');
+      const call = await gate.request('tools/call', { name: 'fake__echo_tool', arguments: { text: 'hello', count: 2 } });
+      assert.deepEqual(call.result, expected, 'result forwarded verbatim');
 
-    const ping = await gate.request('ping', {});
-    assert.deepEqual(ping.result, {});
+      const status = await gate.request('tools/call', { name: 'gate__status', arguments: {} });
+      assert.equal(status.result.structuredContent.wallet, g.kp.publicKey);
+      assert.equal(status.result.structuredContent.downstreams[0].state, 'ready');
 
-    assert.equal(await gate.stop(), 0, gate.stderr);
+      const unknown = await gate.request('tools/call', { name: 'fake__nope', arguments: {} });
+      assert.equal(unknown.result.isError, true);
+      assert.equal(unknown.result.structuredContent.code, 'unknown_tool');
+
+      const ping = await gate.request('ping', {});
+      assert.deepEqual(ping.result, {});
+
+      assert.equal(await gate.stop(), 0, gate.stderr);
+    } finally {
+      await gate.stop(); // no-op once exited
+    }
 
     // I10: every stdout line is a JSON-RPC frame.
     assert.ok(gate.stdoutLines.length >= 6);
@@ -591,10 +614,10 @@ describe('gate run (stdio round trip)', () => {
     const env = baseEnv({ SFGATE_UPSTREAM_RPC_URL: g.url, SFGATE_PETTY_CASH_PATH: g.kpFile });
     // --verbose echoes downstream stderr, which is where a leak would show.
     const gate = startGate(file, env, ['--verbose']);
-    await gate.request('initialize', { protocolVersion: '2025-06-18' });
     const secretB58 = base58Encode(Uint8Array.from(g.kp.bytes));
     const texts = [];
     try {
+      await gate.request('initialize', { protocolVersion: '2025-06-18' });
       for (const name of ['LEAK_URL', 'LEAK_WS', 'PRIVATE_KEY']) {
         const res = await gate.request('tools/call', { name: 'echo__leak', arguments: { name } });
         texts.push(res.result.content[0].text);
