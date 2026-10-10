@@ -86,8 +86,14 @@ export async function startRpcCheckpoint({
     throw new TypeError('rpc checkpoint: deniedMethods must be an array of method names');
   }
   const upstream = parseUrl(upstreamUrl, ['http:', 'https:'], 'upstreamUrl');
-  // 'http://…' → 'ws://…', 'https://…' → 'wss://…'
-  const upstreamWs = parseUrl(upstreamWsUrl ?? `ws${upstream.href.slice(4)}`, ['ws:', 'wss:'], 'upstreamWsUrl');
+  // 'http://…' → 'ws://…', 'https://…' → 'wss://…'. An empty string (an
+  // unset optional env var) means "not given".
+  const upstreamWs = parseUrl(upstreamWsUrl || `ws${upstream.href.slice(4)}`, ['ws:', 'wss:'], 'upstreamWsUrl');
+  // fetch() refuses a URL with credentials in it, so userinfo travels as a
+  // Basic Authorization header instead, on both connections.
+  const upstreamTarget = withoutUserinfo(upstream);
+  const upstreamAuth = basicAuth(upstream);
+  const upstreamWsAuth = basicAuth(upstreamWs);
   const denied = new Set(deniedMethods);
   const wsPort = port + 1;
 
@@ -168,7 +174,7 @@ export async function startRpcCheckpoint({
       case 'send':
         return answerSend(call, ctx);
       default: {
-        const up = await postUpstream(JSON.stringify(call));
+        const up = await postUpstream(JSON.stringify(jsonRpcMembers(call)));
         return up.ok ? up.text : upstreamFailure(id, up);
       }
     }
@@ -178,7 +184,7 @@ export async function startRpcCheckpoint({
     if (calls.length === 0) return generated(rpcError(null, -32600, `${PREFIX}empty batch`));
     // A batch of plain reads goes up as one request and comes back verbatim.
     if (calls.every((c) => classify(c) === 'read')) {
-      const up = await postUpstream(JSON.stringify(calls));
+      const up = await postUpstream(JSON.stringify(calls.map(jsonRpcMembers)));
       if (up.ok) return up.text;
       return `[${calls.map((c) => upstreamFailure(idOf(c), up)).join(',')}]`;
     }
@@ -198,7 +204,7 @@ export async function startRpcCheckpoint({
     if (closed || ctx.signal.aborted) return generated(refusal(id, 'request cancelled', { code: 'cancelled' }));
     // Serialised before onSend runs, so what goes upstream is fixed by what
     // was decoded, whatever onSend does with the objects it is handed.
-    const forwardBody = JSON.stringify(call);
+    const forwardBody = JSON.stringify(jsonRpcMembers(call));
     let verdict;
     try {
       verdict = await onSend(decoded.bytes, {
@@ -246,9 +252,11 @@ export async function startRpcCheckpoint({
     try {
       let response;
       try {
-        response = await fetch(upstream.href, {
+        const headers = { 'content-type': 'application/json' };
+        if (upstreamAuth) headers.authorization = upstreamAuth;
+        response = await fetch(upstreamTarget, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers,
           body: bodyText,
           // A redirect is a failure, not an instruction: following it would
           // post a transaction to a host nobody configured.
@@ -354,9 +362,11 @@ export async function startRpcCheckpoint({
   /** The client's upgrade request, re-addressed to the upstream's path and Host. */
   function upgradeRequest(req) {
     const lines = [`GET ${upstreamWs.pathname}${upstreamWs.search} HTTP/1.1`, `Host: ${upstreamWs.host}`];
+    if (upstreamWsAuth) lines.push(`Authorization: ${upstreamWsAuth}`);
     for (let i = 0; i < req.rawHeaders.length; i += 2) {
-      // Host is rewritten; an Origin, if any, was ours and means nothing upstream.
-      if (/^(host|origin)$/i.test(req.rawHeaders[i])) continue;
+      // Host is rewritten; an Origin, if any, was ours and means nothing
+      // upstream; upstream credentials are Gate's to supply, not the client's.
+      if (/^(host|origin|authorization)$/i.test(req.rawHeaders[i])) continue;
       lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
     }
     return `${lines.join('\r\n')}\r\n\r\n`;
@@ -407,6 +417,24 @@ function parseUrl(value, protocols, label) {
     throw new TypeError(`rpc checkpoint: ${label} must use ${protocols.join(' or ')}`);
   }
   return url;
+}
+
+function withoutUserinfo(url) {
+  const copy = new URL(url.href);
+  copy.username = '';
+  copy.password = '';
+  return copy.href;
+}
+
+function basicAuth(url) {
+  if (!url.username && !url.password) return null;
+  let pair;
+  try {
+    pair = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+  } catch {
+    throw new TypeError('rpc checkpoint: upstream URL credentials are not valid percent-encoding');
+  }
+  return `Basic ${Buffer.from(pair, 'utf8').toString('base64')}`;
 }
 
 /**
@@ -535,6 +563,16 @@ function decodeBase58(text) {
 
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// What goes upstream: the JSON-RPC members and nothing else, in the client's
+// order (so a canonical request keeps its exact bytes). An extra member such
+// as "METHOD" or "Params" could mean something to a lenient upstream parser
+// that it did not mean to the checks here.
+const JSON_RPC_MEMBERS = new Set(['jsonrpc', 'id', 'method', 'params']);
+
+function jsonRpcMembers(call) {
+  return Object.fromEntries(Object.entries(call).filter(([key]) => JSON_RPC_MEMBERS.has(key)));
 }
 
 function idOf(call) {

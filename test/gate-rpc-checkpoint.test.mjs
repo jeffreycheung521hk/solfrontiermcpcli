@@ -340,6 +340,38 @@ describe('JSON-RPC handling', () => {
   });
 });
 
+describe('what goes upstream', () => {
+  test('only the JSON-RPC members are forwarded, in the client\'s order', async () => {
+    const h = await harness({ onSend: async () => ({ forward: true }) });
+    try {
+      await h.post('/', JSON.stringify({ method: 'getBalance', METHOD: 'sendTransaction', params: ['x'], Params: ['y'], id: 1, jsonrpc: '2.0', extra: true }));
+      assert.equal(h.upstream.requests[0].body, JSON.stringify({ method: 'getBalance', params: ['x'], id: 1, jsonrpc: '2.0' }));
+      await h.post('/', JSON.stringify([{ id: 2, jsonrpc: '2.0', method: 'getSlot', note: 'x' }]));
+      assert.equal(h.upstream.requests[1].body, JSON.stringify([{ id: 2, jsonrpc: '2.0', method: 'getSlot' }]));
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('upstream userinfo becomes a Basic Authorization header and is never echoed', async () => {
+    const upstream = await fakeUpstream();
+    const withCreds = upstream.url.replace('http://', 'http://gate-user:marker%20pass@');
+    const cp = await startCheckpoint({ upstreamUrl: withCreds, onSend: async () => ({ forward: true }) });
+    try {
+      const res = await send(cp.port, { body: JSON.stringify(rpc(1, 'getSlot')) });
+      assert.equal(res.status, 200);
+      assert.equal(upstream.requests[0].headers.authorization, `Basic ${Buffer.from('gate-user:marker pass').toString('base64')}`);
+      assert.equal(upstream.requests[0].url, UPSTREAM_PATH);
+      // Even the client's own Authorization header goes nowhere.
+      await send(cp.port, { body: JSON.stringify(rpc(2, 'getSlot')), headers: { authorization: 'Basic Y2xpZW50OnNpZGU=' } });
+      assert.equal(upstream.requests[1].headers.authorization, `Basic ${Buffer.from('gate-user:marker pass').toString('base64')}`);
+    } finally {
+      await cp.close();
+      await upstream.close();
+    }
+  });
+});
+
 describe('upstream failure (I4: the URL never appears)', () => {
   function assertNoUpstreamUrl(text, url) {
     for (const fragment of [url, url.replace(/^http:\/\//, ''), 'upstream-marker-path', 'upstream-marker-token']) {
@@ -888,19 +920,44 @@ describe('WebSocket tunnel on port + 1', () => {
     }
   });
 
-  test('without upstreamWsUrl the tunnel targets the upstream URL with ws://', async () => {
+  for (const upstreamWsUrl of [undefined, '']) {
+    test(`with upstreamWsUrl ${JSON.stringify(upstreamWsUrl)} the tunnel targets the upstream URL with ws://`, async () => {
+      const ws = await fakeWsUpstream();
+      // http://127.0.0.1:<ws port>/… → ws://127.0.0.1:<ws port>/…
+      const cp = await startCheckpoint({ upstreamUrl: `http://127.0.0.1:${ws.port}${WS_UPSTREAM_PATH}`, upstreamWsUrl, onSend: forward });
+      try {
+        const up = await upgrade(cp.port + 1);
+        assert.equal(up.status, 101);
+        assert.equal(await roundTrip(up.socket, 'derived'), 'derived');
+        assert.equal(ws.heads[0].split('\r\n')[0], `GET ${WS_UPSTREAM_PATH} HTTP/1.1`);
+        up.socket.destroy();
+      } finally {
+        await cp.close();
+        await ws.close();
+      }
+    });
+  }
+
+  test('ws userinfo becomes Authorization; the client\'s own Authorization is dropped', async () => {
     const ws = await fakeWsUpstream();
-    // http://127.0.0.1:<ws port>/… → ws://127.0.0.1:<ws port>/…
-    const cp = await startCheckpoint({ upstreamUrl: `http://127.0.0.1:${ws.port}${WS_UPSTREAM_PATH}`, onSend: forward });
+    const upstream = await fakeUpstream();
+    const cp = await startCheckpoint({
+      upstreamUrl: upstream.url,
+      upstreamWsUrl: ws.url.replace('ws://', 'ws://gate-user:ws-pass@'),
+      onSend: forward,
+    });
     try {
-      const up = await upgrade(cp.port + 1);
+      const up = await upgrade(cp.port + 1, { headers: { authorization: 'Bearer client-side' } });
       assert.equal(up.status, 101);
-      assert.equal(await roundTrip(up.socket, 'derived'), 'derived');
-      assert.equal(ws.heads[0].split('\r\n')[0], `GET ${WS_UPSTREAM_PATH} HTTP/1.1`);
+      const lower = ws.heads[0].toLowerCase().split('\r\n');
+      const auth = lower.filter((x) => x.startsWith('authorization:'));
+      assert.deepEqual(auth, [`authorization: basic ${Buffer.from('gate-user:ws-pass').toString('base64').toLowerCase()}`]);
+      assert.ok(!ws.heads[0].includes('gate-user@'));
       up.socket.destroy();
     } finally {
       await cp.close();
       await ws.close();
+      await upstream.close();
     }
   });
 });
