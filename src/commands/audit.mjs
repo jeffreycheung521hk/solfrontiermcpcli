@@ -646,7 +646,12 @@ async function runLog({ flags, positionals, env }) {
   const known = createRedactor(url ? [rawUrl, url] : []);
   const scrub = (text) => redactRpcUrls(redactSensitive(known(text), env), env);
 
-  const text = readFileSync(file, 'utf8');
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    throw new UsageError(`cannot read ${file}: ${err.code ?? err.message}`);
+  }
   if (text === '') throw new UsageError(`${file} is empty: there is nothing to verify`);
 
   const rpc = url ? new SolanaRpc({ url, timeoutMs: 20000 }) : null;

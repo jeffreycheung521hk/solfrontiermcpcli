@@ -588,7 +588,7 @@ describe('sfcli audit --log', () => {
     }
   });
 
-  test('usage errors exit 2 before any RPC: bad commitment, both modes, missing file, empty file', async () => {
+  test('usage errors exit 2 before any RPC: bad commitment, both modes, missing, empty or directory file', async () => {
     const file = writeLog(sendFlow(good));
     const empty = freshPath();
     writeFileSync(empty, '');
@@ -597,6 +597,7 @@ describe('sfcli audit --log', () => {
       ['audit', 'doc.md', '--log', file],
       ['audit', '--log', path.join(dir, 'nope.jsonl')],
       ['audit', '--log', empty],
+      ['audit', '--log', dir],
       ['audit', 'doc.md', '--rpc-env', 'X'],
     ]) {
       const r = await cli(args);
