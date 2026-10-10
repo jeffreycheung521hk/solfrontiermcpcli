@@ -14,6 +14,10 @@ import path from 'node:path';
 import process from 'node:process';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { GuardrailError, UsageError } from '../cli/exit-codes.mjs';
+import { encode as base58Encode, decode as base58Decode } from '../solana/base58.mjs';
+
+// Keep T1's public names for callers while sharing the Solana codec.
+export { base58Encode, base58Decode };
 
 const SECRET_KEY_RE = /rpc.?url|api.?key|secret|keypair|mnemonic|private|seed/i;
 const SERVER_NAME_RE = /^[a-z0-9-]{1,16}$/;
@@ -39,46 +43,6 @@ export const GATE_DEFAULTS = Object.freeze({
   // downstream makes fails instead of reaching anything real.
   placeholderRpcUrl: 'http://127.0.0.1:9',
 });
-
-// --- base58 (tiny, local; T3's src/solana/base58.mjs replaces it in I1) ---
-const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const B58_INDEX = new Map([...B58].map((c, i) => [c, i]));
-
-/** @param {Uint8Array} bytes */
-export function base58Encode(bytes) {
-  let n = 0n;
-  for (const b of bytes) n = (n << 8n) | BigInt(b);
-  let out = '';
-  while (n > 0n) {
-    out = B58[Number(n % 58n)] + out;
-    n /= 58n;
-  }
-  for (const b of bytes) {
-    if (b !== 0) break;
-    out = '1' + out;
-  }
-  return out;
-}
-
-/** @param {string} text @returns {Uint8Array} throws on a non-base58 character */
-export function base58Decode(text) {
-  let n = 0n;
-  for (const c of String(text)) {
-    const v = B58_INDEX.get(c);
-    if (v === undefined) throw new Error('invalid base58 character');
-    n = n * 58n + BigInt(v);
-  }
-  const bytes = [];
-  while (n > 0n) {
-    bytes.unshift(Number(n & 0xffn));
-    n >>= 8n;
-  }
-  for (const c of String(text)) {
-    if (c !== '1') break;
-    bytes.unshift(0);
-  }
-  return Uint8Array.from(bytes);
-}
 
 // --- helpers ---------------------------------------------------------------
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);

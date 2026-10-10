@@ -12,6 +12,7 @@
 // expiry, bad signature, missing approver, unexpected method. Waiters only ever
 // see `approved` when a valid approval was recorded while the hold was pending.
 import { createPublicKey, randomBytes, verify } from 'node:crypto';
+import { decode } from '../solana/base58.mjs';
 
 export const CLUSTERS = Object.freeze(['devnet', 'mainnet-beta', 'localnet']);
 /** Clusters where the insecure local-button fallback may approve (I3). */
@@ -48,41 +49,14 @@ export class HoldError extends Error {
   }
 }
 
-// --- base58 ---------------------------------------------------------------
-// Private on purpose: T3 owns src/solana/base58.mjs on a parallel branch and
-// I1 swaps it in. Returns null instead of throwing so callers fail closed
-// without a try/catch.
-const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const B58_INDEX = new Map([...B58_ALPHABET].map((ch, i) => [ch, i]));
-
-function decodeBase58(text) {
-  if (typeof text !== 'string' || text.length === 0 || text.length > 128) return null;
-  const bytes = []; // little-endian accumulator
-  for (const ch of text) {
-    const digit = B58_INDEX.get(ch);
-    if (digit === undefined) return null;
-    let carry = digit;
-    for (let i = 0; i < bytes.length; i++) {
-      carry += bytes[i] * 58;
-      bytes[i] = carry & 0xff;
-      carry >>= 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
-  }
-  let zeros = 0;
-  while (zeros < text.length && text[zeros] === '1') zeros++;
-  const out = new Uint8Array(zeros + bytes.length);
-  for (let i = 0; i < bytes.length; i++) out[zeros + i] = bytes[bytes.length - 1 - i];
-  return out;
-}
-
 /** True when `text` is a base58 string that decodes to a 32-byte Ed25519 public key. */
 export function isBase58PublicKey(text) {
-  const bytes = decodeBase58(text);
-  return bytes !== null && bytes.length === 32;
+  if (typeof text !== 'string' || text.length === 0 || text.length > 128) return false;
+  try {
+    return decode(text).length === 32;
+  } catch {
+    return false;
+  }
 }
 
 // --- approval message -----------------------------------------------------
@@ -130,8 +104,8 @@ export function verifyApproval({ message, publicKey, signature, approver } = {})
     if (typeof message !== 'string' || typeof publicKey !== 'string' || typeof approver !== 'string') return false;
     if (publicKey !== approver) return false;
     if (!(signature instanceof Uint8Array) || signature.length !== 64) return false;
-    const keyBytes = decodeBase58(approver);
-    if (keyBytes === null || keyBytes.length !== 32) return false;
+    if (!isBase58PublicKey(approver)) return false;
+    const keyBytes = decode(approver);
     const key = createPublicKey({
       key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from(keyBytes).toString('base64url') },
       format: 'jwk',
