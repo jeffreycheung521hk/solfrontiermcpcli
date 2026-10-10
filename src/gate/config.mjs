@@ -223,6 +223,8 @@ export function loadGateConfig(configPath, env = process.env) {
     if (!SERVER_NAME_RE.test(name)) {
       throw new UsageError(`server name "${name}" must match ^[a-z0-9-]{1,16}$ (it becomes the tool-name prefix)`);
     }
+    // Gate's own gate__status tool must never share a downstream namespace.
+    if (name === 'gate') throw new UsageError('server name "gate" is reserved for Gate tools');
     if (!isPlainObject(entry)) throw new UsageError(`servers.${name} must be an object`);
     for (const k of Object.keys(entry)) {
       if (!SERVER_KEYS.has(k)) throw new UsageError(`unknown key servers.${name}.${k} (allowed: ${[...SERVER_KEYS].join(', ')})`);

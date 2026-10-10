@@ -5,7 +5,7 @@
 // are attacker-influenced and operator-visible.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizedChildEnv, redactSensitive } from '../src/mcp/session.mjs';
+import { McpSession, sanitizedChildEnv, stripChildEnv, redactSensitive } from '../src/mcp/session.mjs';
 
 // Values are assembled at runtime rather than written as literals. They are
 // synthetic, but they are shaped like real secrets on purpose, and a literal
@@ -49,6 +49,40 @@ describe('child environment', () => {
 
   test('the RPC endpoint is still provided: the server needs it to work', () => {
     assert.equal(child.SOLFRONTIER_RPC_URL, SECRETS.SOLFRONTIER_RPC_URL);
+  });
+});
+
+describe('Gate environment stripping', () => {
+  test('Windows strips regex and configured names regardless of casing', () => {
+    const env = { SFGATE_URL: 'a', sfgate_url: 'b', SfGaTe_Url: 'c', custom_rpc: 'd', KEEP: 'e' };
+    const before = { ...env };
+    assert.deepEqual(stripChildEnv(env, [/^SFGATE_/, 'CUSTOM_RPC'], { platform: 'win32' }), { KEEP: 'e' });
+    assert.deepEqual(env, before, 'stripping must leave the parent environment intact');
+  });
+
+  test('POSIX regex rules retain their supplied case sensitivity', () => {
+    const env = { SFGATE_URL: 'a', sfgate_url: 'b', CUSTOM_RPC: 'c', custom_rpc: 'd' };
+    assert.deepEqual(stripChildEnv(env, [/^SFGATE_/, 'CUSTOM_RPC'], { platform: 'linux' }), { sfgate_url: 'b' });
+  });
+
+  test('stateful patterns strip every matching name without altering caller state', () => {
+    for (const rule of [/^SFGATE_/g, /^SFGATE_/y]) {
+      rule.lastIndex = 4;
+      const env = { sfgate_first: 'a', sfgate_second: 'b', SFGATE_THIRD: 'c', KEEP: 'd' };
+      assert.deepEqual(stripChildEnv(env, [rule], { platform: 'win32' }), { KEEP: 'd' });
+      assert.equal(rule.lastIndex, 4);
+    }
+  });
+
+  test('Windows explicit injections remove inherited aliases before spawning', () => {
+    const source = { PATH: '/bin', RPC_URL: 'inherited', Rpc_Url: 'another inherited', keep: 'ok' };
+    const before = { ...source };
+    const session = new McpSession({ extraEnv: { rpc_url: 'http://127.0.0.1:9' } });
+    assert.deepEqual(session.childEnv(source, { platform: 'win32' }), {
+      PATH: '/bin', keep: 'ok', rpc_url: 'http://127.0.0.1:9',
+    });
+    assert.deepEqual(source, before);
+    assert.equal(session.childEnv(source, { platform: 'linux' }).RPC_URL, 'inherited');
   });
 });
 

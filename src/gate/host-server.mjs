@@ -52,7 +52,11 @@ export function createHostServer({ input, output, handlers, version = '0.0.0', r
 
   function send(message) {
     if (output.destroyed || output.writableEnded) return;
-    output.write(`${redact(JSON.stringify(message))}\n`);
+    // JSON escaping changes quotes, backslashes and control characters in a
+    // URL. Scrub string values first, while they still match the redactor's
+    // in-memory secrets; keep the frame scrub for text in property names.
+    const text = JSON.stringify(message, (key, value) => typeof value === 'string' ? redact(value) : value);
+    output.write(`${redact(text)}\n`);
   }
 
   const respond = (id, result) => send({ jsonrpc: '2.0', id, result });

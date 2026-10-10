@@ -119,6 +119,14 @@ describe('loadGateConfig', () => {
     }
   });
 
+  test('gate server name is reserved so downstreams cannot shadow gate__status', () => {
+    const cfg = baseConfig({ servers: { gate: { command: 'node' } } });
+    assert.throws(() => loadGateConfig(writeConfig(cfg), ENV), usage(/server name "gate" is reserved/));
+    // A different namespace that merely contains the word remains valid.
+    const allowed = baseConfig({ servers: { 'my-gate': { command: 'node' } } });
+    assert.ok(loadGateConfig(writeConfig(allowed), ENV).servers['my-gate']);
+  });
+
   test('missing env var named by the config -> exit 2', () => {
     assert.throws(() => loadGateConfig(writeConfig(baseConfig()), {}), usage(/SFGATE_UPSTREAM_RPC_URL.*not set/));
     const cfg = baseConfig({ pettyCash: { pathEnv: 'SFGATE_PETTY_CASH_PATH' } });

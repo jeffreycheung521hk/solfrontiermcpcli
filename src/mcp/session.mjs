@@ -57,13 +57,23 @@ export function sanitizedChildEnv(source = process.env) {
  * configuration from the downstreams it spawns (SPEC I5).
  * @param {Record<string, string>} env
  * @param {(string|RegExp)[]} rules
+ * @param {{ platform?: string }} options platform override for hermetic tests
  */
-export function stripChildEnv(env, rules = []) {
+export function stripChildEnv(env, rules = [], { platform = process.platform } = {}) {
+  // Windows treats every environment name case-insensitively, including
+  // names matched by a caller's RegExp that omitted the `i` flag.
+  const matchers = rules.map((rule) => rule instanceof RegExp
+    ? new RegExp(rule.source, platform === 'win32' && !rule.ignoreCase ? `${rule.flags}i` : rule.flags)
+    : String(rule).toUpperCase());
   const out = {};
   for (const [key, value] of Object.entries(env)) {
-    const hit = rules.some((rule) =>
-      rule instanceof RegExp ? rule.test(key) : String(rule).toUpperCase() === key.toUpperCase(),
-    );
+    const hit = matchers.some((rule) => {
+      if (!(rule instanceof RegExp)) return rule === key.toUpperCase();
+      // Global/sticky patterns must not alternate between matching names or
+      // mutate the caller's RegExp as the environment is inspected.
+      rule.lastIndex = 0;
+      return rule.test(key);
+    });
     if (!hit) out[key] = value;
   }
   return out;
@@ -140,8 +150,12 @@ export class McpSession {
    * `stripEnv`, plus `extraEnv`. Injections come last so that an explicit
    * value (e.g. Gate's checkpoint URL) always wins over an inherited one.
    */
-  childEnv(source = process.env) {
-    return { ...stripChildEnv(sanitizedChildEnv(source), this.stripEnv), ...this.extraEnv };
+  childEnv(source = process.env, { platform = process.platform } = {}) {
+    // Node passes only one case variant of an env name to Windows children.
+    // Remove inherited aliases first so lexicographic selection cannot pick
+    // the parent's endpoint instead of Gate's explicit checkpoint injection.
+    const rules = platform === 'win32' ? [...this.stripEnv, ...Object.keys(this.extraEnv)] : this.stripEnv;
+    return { ...stripChildEnv(sanitizedChildEnv(source), rules, { platform }), ...this.extraEnv };
   }
 
   #clean(text) {
