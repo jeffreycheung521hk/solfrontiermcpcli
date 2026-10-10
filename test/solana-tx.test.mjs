@@ -1,5 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import process from 'node:process';
 
 import {
   decodeTransaction, messageSha256, resolveAccountKeys, verifySignatures,
@@ -257,5 +260,38 @@ describe('address lookup tables', () => {
     await assert.rejects(fetchLookupTables(reply([]), [t]), /malformed/);
     await assert.rejects(fetchLookupTables({ call: async () => { throw new Error('boom'); } }, [t]), /boom/);
     await assert.rejects(fetchLookupTables(reply([]), ['not-base58!']), /base58/);
+  });
+});
+
+describe('scripts/hackathon/decode-tx.mjs (offline)', () => {
+  const script = fileURLToPath(new URL('../scripts/hackathon/decode-tx.mjs', import.meta.url));
+  const env = { ...process.env };
+  delete env.SFGATE_UPSTREAM_RPC_URL;
+  const run = (args, input) => spawnSync(process.execPath, [script, ...args], { env, input, encoding: 'utf8' });
+
+  test('prints a decoded summary from argv, lookups left unresolved', () => {
+    const v = v0WithLookup();
+    const r = run([Buffer.from(v.bytes).toString('base64')]);
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.version, 0);
+    assert.equal(out.messageSha256, messageSha256(decodeTransaction(v.bytes)));
+    assert.equal(out.feePayer, v.payer.address);
+    assert.deepEqual(out.signatures, { complete: true, valid: [true, true] });
+    assert.match(out.lookupTables, /unresolved/);
+    assert.equal(out.accounts[4].key, `${v.tableKey}#3`);
+    assert.equal(out.instructions[0].program, 'spl-token');
+  });
+
+  test('reads stdin; bad input exits non-zero', () => {
+    const v = legacyTransfer();
+    const r = run([], `${Buffer.from(v.bytes).toString('base64')}\n`);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(JSON.parse(r.stdout).instructions[0].lamports, '1000000');
+    assert.equal(run(['%%%']).status, 2);
+    const bad = run([Buffer.from([1, 2, 3]).toString('base64')]);
+    assert.equal(bad.status, 1);
+    assert.match(bad.stderr, /decode-tx: /);
+    assert.equal(bad.stdout, '');
   });
 });
