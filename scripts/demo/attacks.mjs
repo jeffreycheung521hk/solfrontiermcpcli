@@ -273,7 +273,9 @@ async function runAttackScenario(scenario, { hermetic, configPath }) {
       serverArgs: [CLI, 'gate', 'run', setup.configPath],
       appendDb: false,
       extraEnv: setup.env,
-      cwd: ROOT,
+      // Relative paths in the human's environment retain their shell meaning.
+      // Downstream cwd and audit paths were already resolved against the config.
+      cwd: hermetic ? ROOT : process.cwd(),
       redact: setup.redact,
       timeoutMs: 60000,
     }).start();

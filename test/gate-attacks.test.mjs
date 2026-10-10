@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { ROOT } from './helpers.mjs';
 import { keypair, randomAddress, SYSTEM, TOKEN } from './solana-builders.mjs';
-import { startFakeUpstream, FAKE_BLOCKHASH, DEVNET_GENESIS_HASH } from './fake-upstream-rpc.mjs';
+import { startFakeUpstream, FAKE_BLOCKHASH } from './fake-upstream-rpc.mjs';
 import { decodeTransaction, resolveAccountKeys } from '../src/solana/tx.mjs';
 import { describeInstructions } from '../src/solana/instructions.mjs';
 import { verifyChainText } from '../src/gate/audit-log.mjs';
@@ -105,8 +105,8 @@ test('human mode uses supplied config, custom env names and its upstream/audit w
     const original = JSON.stringify(config);
     writeFileSync(configPath, original);
     const { stdout, stderr } = await exec(process.execPath, [ATTACKS, configPath], {
-      cwd: ROOT, timeout: 25_000,
-      env: { ...process.env, ATTACK_RPC_ENDPOINT: up.url, ATTACK_WALLET_FILE: walletPath },
+      cwd: dir, timeout: 25_000,
+      env: { ...process.env, ATTACK_RPC_ENDPOINT: up.url, ATTACK_WALLET_FILE: 'wallet.json' },
     });
     assert.equal(stdout, '');
     assert.match(stderr, /6 passed, 0 failed, 0 skipped/);
@@ -122,4 +122,18 @@ test('human mode uses supplied config, custom env names and its upstream/audit w
     assert.ok(records.some((record) => record.type === 'rpc_send_refused' && record.code === 'unsolicited_send'));
     assert.equal(records.some((record) => record.type === 'hold_created'), false);
     assert.equal(stderr.includes(up.url), false);
+    // Refuse other clusters before even contacting the supplied upstream.
+    config.cluster = 'mainnet-beta';
+    writeFileSync(configPath, JSON.stringify(config));
+    const priorCalls = up.calls.length;
+    await assert.rejects(exec(process.execPath, [ATTACKS, configPath], {
+      cwd: dir, timeout: 10_000,
+      env: { ...process.env, ATTACK_RPC_ENDPOINT: up.url, ATTACK_WALLET_FILE: 'wallet.json' },
+    }), (err) => {
+      assert.equal(err.code, 1);
+      assert.match(err.stderr, /requires a devnet config/);
+      assert.match(err.stderr, /0 passed, 6 failed, 0 skipped/);
+      return true;
+    });
+    assert.equal(up.calls.length, priorCalls);
   });
