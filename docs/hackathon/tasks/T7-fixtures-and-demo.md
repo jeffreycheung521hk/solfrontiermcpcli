@@ -1,6 +1,6 @@
 # T7 — Demo wallet server, fake upstream RPC, attack script
 
-> **給 Jeff**：Agent C（Claude Code 雲端或 Codex）週五晚上跑，接著做 T5。預估 3–4 小時。
+> **給 Jeff**：第一輪（Agent C，Claude Code 雲端或 Codex）。做完開 PR 就停。預估 3–4 小時。
 > 這張卡做的是 demo 的「靶子」：一個模仿熱門 Solana MCP server 寫法的錢包 server（key 放
 > env、自己簽、自己送），以及一支「被入侵的 agent」攻擊腳本。
 
@@ -86,8 +86,8 @@ For MCP stdio framing, `test/fake-server.mjs`.
 
 ```
 You are Agent C in this repository. Read AGENTS.md, docs/hackathon/SPEC.md and
-docs/hackathon/tasks/T7-fixtures-and-demo.md. Work on branch gate/fixtures. Implement T7
-completely, with tests, committing after each green step, until every Acceptance box is ticked.
-Then continue with docs/hackathon/tasks/T5-rpc-checkpoint.md on the same branch. Do not add any
-npm dependency. Finish by opening a PR listing what is verified, UNVERIFIED, and needs from others.
+docs/hackathon/tasks/T7-fixtures-and-demo.md. Create branch gate/fixtures from the latest
+main. Implement T7 completely, with tests, committing after each green step, until every
+Acceptance box is ticked. Do not start any other card. Do not add any npm dependency. Finish by
+opening a PR listing what is verified, UNVERIFIED, and needs from others. Then stop.
 ```

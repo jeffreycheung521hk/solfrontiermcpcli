@@ -1,7 +1,8 @@
-# R1 — Adversarial security review (GPT)
+# R1 — Adversarial security review (the other model)
 
-> **給 Jeff**：週六晚上用 GPT（Codex）跑，**只審不改**。週日早上你只修 P0。
-> 用另一家模型審，是為了避開「同一個模型自己寫、自己審」的盲點。
+> **給 Jeff**：第三輪（週六晚上，雲端過夜），**只審不改**。週日早上你只修 P0。
+> 用「寫了大部分程式的那家」以外的模型來審（大多是 GPT 寫的，就用 Claude Code 跑這張），
+> 避開「同一個模型自己寫、自己審」的盲點。
 
 Branch: `review/r1` from `main` · Output: `docs/hackathon/REVIEW.md` only
 

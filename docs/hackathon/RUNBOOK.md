@@ -5,7 +5,7 @@
 - **截止**：10/13（二）15:59 JST（= 10/12 23:59 PDT）。**目標提交**：10/12（一）18:00 JST，留約 22 小時緩衝。
 - **Code freeze**：10/12（一）12:00 JST。之後只改文件、影片、表單。
 - **策略**：以 `solfrontiermcpcli`（zero-dep Node、已有 MCP transport 和 187 個測試）為底，
-  4 個 AI agent 平行寫程式（夜班在雲端跑），你只做 agent 做不了的五件事：
+  AI agent 分輪平行寫程式（一張卡＝一個任務＝一個 branch＝一個 PR），你只做 agent 做不了的五件事：
   1. 決策與合併 PR
   2. 在 Claude Desktop / Phantom / devnet / mainnet 實測
   3. 管 petty-cash 的錢
@@ -18,25 +18,23 @@
 | 時間 | 誰 | 做什麼 |
 |---|---|---|
 | **週五 10/9** | | |
-| 18:30–19:30 | 你 | 表單 draft；把 kit 放進 repo、commit、push（§3.1） |
-| 19:30–20:15 | 你 | 啟動 Agent A / B / C / D（夜班 N1，§3.2） |
-| 20:15–22:30 | 你 | 環境準備（§3.3） |
-| 22:30–23:30 | 你 | Spike：jupiter-mcp、SendAI 單獨能不能跑（§3.4）→ **K0** |
-| 23:30–00:30 | 你 | 巡檢 agent、回答 `docs/hackathon/questions/` 裡各卡的問題 → 睡 |
+| 已完成 | 你 | 表單 draft；B0：kit commit `docs(hackathon): build kit — …`（22 檔 SHA-256 全 OK、187 tests 綠） |
 | **週六 10/10** | | |
-| 08:00–09:30 | 你 | 看 4 個 PR，依序合併（§4），`npm test` |
-| 09:30–10:00 | 你 | Claude Desktop 冒煙測試：gate + 示範錢包，只測「列工具 / deny」（`get_balance` 要等 I1 把 RPC checkpoint 接上才會通，現在失敗是正常的 fail-closed） |
-| 10:00–15:00 | 你 + Agent A（本機） | **I1 整合**：先 hermetic 測試全綠，再上 devnet |
-| **15:00** | ✅ **CP1** | devnet 上「轉 5 SOL 被拒」＋「0.001 SOL 經 Phantom 簽名核准後上鏈」 |
-| 15:00–18:00 | 你 + Agent A | 接真實 server：jupiter-mcp（mainnet）或 SendAI（devnet），看 K0 結果 |
-| **18:00** | ⛔ **K1** | 哪條路不通就砍（§5） |
-| 18:00–20:00 | 你 | `attacks.mjs` 在 devnet 跑一輪；錄第一段 GIF |
-| 20:00–21:00 | 你 | Colosseum「Builder updates」#1；啟動夜班 N2 |
-| 21:00–00:30 | 你 | 用 `SUBMISSION.md` 骨架寫 pitch 稿初版 → 睡 |
+| 06:15–07:00 | 你 | B0 PR（`codex/sfgate-bootstrap` → `main`）：CI 四組全綠 → **合併** |
+| 07:00 | 你 | **第一輪**：T1、T3、T7、T6 各開一個獨立任務；T5 有空位就一起開（§2） |
+| 07:00–08:30 | 你 | 環境準備（§3.3）＋ Spike（§3.4）→ **K0** |
+| 08:30–11:30 | 你 | **補眠**（任務在雲端跑） |
+| 11:30–14:30 | 你 | 第一輪 PR 陸續回來：看、合併（§4）；每合併一張就開它的下一張：T1→T2、T3→T4、T1＋T3→T8；T5 若還沒開就開 |
+| 14:30–15:30 | 你 | 第二輪合併完，`npm test` 綠；Claude Desktop 冒煙測試，只測「列工具 / deny」（`get_balance` 要等 I1 接上 RPC checkpoint 才會通，現在失敗是正常的 fail-closed） |
+| 15:30–21:00 | 你 + 本機 Claude Code | **I1 整合**：先 hermetic 測試全綠，再上 devnet |
+| **21:00** | ✅ **CP1** | devnet 上「轉 5 SOL 被拒」＋「0.001 SOL 經 Phantom 簽名核准後上鏈」 |
+| **22:00** | ⛔ **K1** | 哪條路不通就砍（§5） |
+| 22:00–23:00 | 你 | Colosseum「Builder updates」#1；開第三輪（雲端過夜）：T9（README）、R1（審查） |
+| 23:00 | 你 | 睡。接真實 server（jupiter-mcp / SendAI）移到週日早上 |
 | **週日 10/11** | | |
-| 08:00–10:30 | 你 + Agent A | **只修 R1 的 P0**；`attacks.mjs` devnet 全 PASS |
-| 10:30–13:30 | 你 | **Mainnet proof**（§3.5）＋ `audit --log` PASS |
-| 13:30–16:00 | 你 + Agent C | README 定稿：填入真實簽名、真實輸出 |
+| 08:00–11:00 | 你 + 本機 Claude Code | **只修 R1 的 P0**；接 jupiter-mcp（看 K0 結果）；`attacks.mjs` devnet 全 PASS |
+| 11:00–14:00 | 你 | **Mainnet proof**（§3.5）＋ `audit --log` PASS |
+| 14:00–16:00 | 你 + 雲端任務 | README 定稿：填入真實簽名、真實輸出 |
 | **16:00** | ⛔ **K2** | 功能凍結候選：能跑的就是產品，其餘寫進 roadmap |
 | 16:00–19:00 | 你 | 照 `DEMO-SCRIPT.md` 錄技術 demo 素材（錄 2–3 次） |
 | 19:00–23:00 | 你 | Pitch slides（6–8 張）＋錄旁白；Builder update #2 |
@@ -48,30 +46,38 @@
 | **18:00** | 🎯 | 目標提交時間 |
 | **週二 10/13** | | 15:59 前只處理上傳 / 表單問題 |
 
-睡眠：週五、週六各約 01:00–08:00。夜班時 agent 在雲端跑，你不用守著。
+睡眠：週六 08:30–11:30 補眠、週六 23:00 起睡到週日 07:00。任務在雲端跑時你不用守著。
 
-## 2. Agent 分工
+## 2. 任務分輪（一張卡＝一個任務＝一個 branch＝一個 PR）
 
-| 代號 | 用什麼 | 夜班 N1（週五晚） | 週六白天 | 夜班 N2（週六晚） |
+| 輪次 | 卡 | branch | 開跑條件 | 建議 |
 |---|---|---|---|---|
-| **A** | Claude Code | T1 → T2（branch `gate/core`） | **I1 整合**（本機，你在旁） | 修 bug |
-| **B** | Codex（GPT） | T3 → T4（`gate/tx`） | 待命 | T8（`gate/audit`） |
-| **C** | Claude Code 雲端，或 Codex | T7 → T5（`gate/fixtures`） | 協助測試 | T9（`gate/docs`） |
-| **D** | Codex（GPT） | T6（`gate/approval`） | — | R1 審查（`review/r1`），只審不改 |
+| 1 | T1 Gate core | `gate/core` | B0 已合併 | Claude Code 雲端 |
+| 1 | T3 Solana kit | `gate/tx` | B0 已合併 | Codex |
+| 1 | T7 Demo fixtures | `gate/fixtures` | B0 已合併 | Claude Code 雲端或 Codex |
+| 1 | T6 Holds / approval | `gate/approval` | B0 已合併 | Codex |
+| 1 或 2 | T5 RPC checkpoint | `gate/checkpoint` | B0 已合併（不依賴其他卡） | 有空位就開 |
+| 2 | T2 Tool policy | `gate/tool-policy` | T1 已合併 | 任一 |
+| 2 | T4 Review | `gate/tx-review` | T3 已合併 | 任一 |
+| 2 | T8 Audit verify | `gate/audit` | T1、T3 已合併 | 任一 |
+| 整合 | I1 | `gate/integrate` | T1–T7 已合併 | **本機** Claude Code，你在旁 |
+| 3 | T9 Docs | `gate/docs` | I1 合併最好 | 雲端過夜 |
+| 3 | R1 Review | `review/r1` | I1 已合併 | 雲端過夜，用另一家模型 |
 
+每個任務做完會開自己的 PR 然後停止；下一張卡一律從**合併後最新的 `main`** 另開任務。
 每張卡都在 `docs/hackathon/tasks/`，最後一段是可以直接貼的 **Launch prompt**。
 
 **在哪裡跑**
 
-- **夜班一律跑雲端**（Claude Code on the web、Codex cloud）：在別人的沙盒裡，碰不到你 Mac 上的錢包和 key；
-  每個 agent 自己開 PR。前提：kit 已經 push 到 GitHub `main`。
+- **沒人看著的任務一律跑雲端**（Claude Code on the web、Codex cloud）：在別人的沙盒裡，碰不到你 Mac 上的錢包和 key；
+  每個任務自己開 PR。前提：B0 已經合併進 GitHub `main`。
 - **雲端不能用時**：本機開 worktree（§3.2），而且只在你醒著時跑。
 - **本機跑 Claude Code 的 terminal 裡不要 export 任何 `SFGATE_*` 或 key**。petty-cash 檔放
   `~/.sfgate/`（repo 外）。`.claude/settings.json` 已擋掉讀這些路徑，但它只是護欄，不是沙盒。
 
-## 3. 今晚（週五）逐步清單
+## 3. 開工清單
 
-### 3.1 把 kit 放進 repo
+### 3.1 把 kit 放進 repo（已由 B0 完成，留作紀錄）
 
 ```bash
 cd ~/dev                                  # 你放程式碼的資料夾
@@ -85,10 +91,10 @@ git commit -m "docs(hackathon): build kit — spec, task cards, runbook, example
 git push
 ```
 
-### 3.2 啟動 4 個 agent
+### 3.2 開任務
 
-- **雲端**：Codex 選這個 repo → 開 task → 貼 T3 的 Launch prompt（B）、T6 的（D）。
-  Claude Code on the web 同樣選 repo → 貼 T1 的（A）、T7 的（C）。
+- **雲端**：每張卡開一個獨立任務（Codex 或 Claude Code on the web），從 `main` 開始，貼該卡最後的
+  Launch prompt。做完它會開 PR 並停止。
 - **本機備案**：
 
 ```bash
@@ -159,7 +165,8 @@ Claude Desktop 設定（`~/Library/Application Support/Claude/claude_desktop_con
 ## 4. 合併流程（每次都一樣）
 
 1. GitHub 上看 PR：測試綠嗎？描述裡的 `UNVERIFIED` 和 `Needs from others` 是什麼？
-2. 依序合併：`gate/core` → `gate/tx` → `gate/approval` → `gate/fixtures`（各自動不同檔案，衝突應該很少）。
+2. 先合併 `gate/core`（T1）和 `gate/tx`（T3）：它們是第二輪的前提；其餘照完成順序合併（各自動不同檔案，衝突應該很少）。
+   每合併一張，就從最新 `main` 開它的下一張卡（§2）。
    雲端 agent 的 branch 可能被加上 `claude/`、`codex/` 前綴（例如 `claude/gate-core`），看 PR 標題裡的卡號對應即可。
 3. 本機：`git switch main && git pull && npm test`
 4. 紅了：在本機 Claude Code 貼：
@@ -167,9 +174,9 @@ Claude Desktop 設定（`~/Library/Application Support/Claude/claude_desktop_con
 
 ## 5. Checkpoints 與砍功能
 
-- **K0（週五 23:30）**：見 §3.4。jupiter 不能用 → mainnet proof 改用示範錢包；SendAI 不能用 → 不接。
-- **CP1（週六 15:00）**：devnet 兩件事都成功。
-- **K1（週六 18:00）**：
+- **K0（週六 08:30 前）**：見 §3.4。jupiter 不能用 → mainnet proof 改用示範錢包；SendAI 不能用 → 不接。
+- **CP1（週六 21:00）**：devnet 兩件事都成功。
+- **K1（週六 22:00）**：
   - RPC checkpoint（T5）不通 → **砍 T5**。產品保留 tool 層、交易參數審查（`sign_and_send`、Jupiter execute）、錢包簽名核准、audit。README 的 L1 照實寫。
   - Phantom 簽名核准不通 → devnet 改 `local-button`（SPEC I3 只允許 devnet），影片裡講明；mainnet 不做實際轉帳，只示範「沒有核准就不送」。
 - **K2（週日 16:00）**：功能凍結候選。

@@ -1,9 +1,9 @@
 # T2 — Tool policy: pass / bound / deny
 
-> **給 Jeff**：Agent A 做完 T1 後在同一個 branch 接著做。預估 2–3 小時。
+> **給 Jeff**：第二輪。T1 合併進 `main` 後，從最新 `main` 另開一個任務。預估 2–3 小時。
 > 驗收方法：在 Claude Desktop 裡叫 agent「轉 5 SOL」會直接收到結構化拒絕，downstream 完全沒被呼叫。
 
-Branch: `gate/core` (after T1) · Depends on: T1 · Blocks: I1
+Branch: `gate/tool-policy`, created from the latest `main` after T1 is merged · Depends on: T1 · Blocks: I1
 
 ## Goal
 
@@ -13,7 +13,8 @@ denied and hidden. Refusals are structured so the agent can re-plan instead of r
 ## You own
 
 - `src/gate/tool-policy.mjs`, `test/gate-tool-policy.test.mjs`
-- Wiring in `src/commands/gate.mjs` / `src/gate/host-server.mjs` (yours from T1)
+- Wiring in `src/commands/gate.mjs` / `src/gate/host-server.mjs` (T1's files, already merged;
+  edit them only for this wiring)
 
 ## Read first
 
@@ -54,11 +55,10 @@ SPEC §5.1 (`tools`, `lists`, `showDeniedTools`), §5.2, §5.3, I1, I6.
 
 ## Launch prompt
 
-Continue from T1 on `gate/core` (see T1's prompt). If you are a fresh session:
-
 ```
-You are Agent A. Read AGENTS.md, docs/hackathon/SPEC.md and
-docs/hackathon/tasks/T2-tool-policy.md. T1 is already on branch gate/core. Implement T2 on the
-same branch until every Acceptance box is ticked, committing after each green step. Then open
-or update the PR for gate/core.
+You are working in this repository. Read AGENTS.md, docs/hackathon/SPEC.md and
+docs/hackathon/tasks/T2-tool-policy.md. T1 is merged into main. Create branch gate/tool-policy
+from the latest main. Implement T2 until every Acceptance box is ticked, committing after each
+green step. Do not start any other card. Finish by opening a PR listing what is verified, what
+is UNVERIFIED, and needs from other cards. Then stop.
 ```

@@ -1,9 +1,9 @@
 # T4 — Transaction review and transaction policy
 
-> **給 Jeff**：Agent B 做完 T3 後在同一個 branch 接著做。預估 2–3 小時。
+> **給 Jeff**：第二輪。T3 合併進 `main` 後，從最新 `main` 另開一個任務。預估 2–3 小時。
 > 驗收方法：測試裡「把 0.5 SOL 轉給攻擊者」的交易被判 deny，理由寫得出是哪條規則、超了多少。
 
-Branch: `gate/tx` (after T3) · Depends on: T3 · Blocks: I1
+Branch: `gate/tx-review`, created from the latest `main` after T3 is merged · Depends on: T3 · Blocks: I1
 
 ## Goal
 
@@ -61,11 +61,11 @@ SPEC §5.5 (order of rules, Review shape), §5.1 (`tx` section), §5.3 (violatio
 
 ## Launch prompt
 
-Continue from T3 on `gate/tx`. Fresh session:
-
 ```
-You are Agent B. Read AGENTS.md, docs/hackathon/SPEC.md and
-docs/hackathon/tasks/T4-review-and-tx-policy.md. T3 is on branch gate/tx. Implement T4 on the
-same branch until every Acceptance box is ticked, committing after each green step, then open
-or update the PR for gate/tx.
+You are working in this repository. Read AGENTS.md, docs/hackathon/SPEC.md and
+docs/hackathon/tasks/T4-review-and-tx-policy.md. T3 is merged into main. Create branch
+gate/tx-review from the latest main. Implement T4 until every Acceptance box is ticked,
+committing after each green step. Do not start any other card. Do not add any npm dependency.
+Finish by opening a PR listing what is verified, what is UNVERIFIED, and needs from other
+cards. Then stop.
 ```

@@ -1,6 +1,6 @@
 # T6 — Holds and wallet-signature approval
 
-> **給 Jeff**：Agent D（Codex / GPT）週五晚上跑。預估 3–4 小時。
+> **給 Jeff**：第一輪（Agent D，Codex / GPT）。做完開 PR 就停。預估 3–4 小時。
 > 驗收方法：測試全綠；週六你親手打開 http://127.0.0.1:8787 ，用 Phantom 簽一次核准訊息。
 
 Branch: `gate/approval` · Depends on: nothing · Blocks: I1
@@ -64,7 +64,8 @@ discipline of the earlier SolFrontier signing page are the model (it worked with
 
 ```
 You are Agent D in this repository. Read AGENTS.md, docs/hackathon/SPEC.md and
-docs/hackathon/tasks/T6-holds-and-approval.md. Work on branch gate/approval. Implement T6
-completely, with tests, committing after each green step, until every Acceptance box is ticked.
-Do not add any npm dependency. Finish by opening a PR that includes manual Phantom test steps.
+docs/hackathon/tasks/T6-holds-and-approval.md. Create branch gate/approval from the latest
+main. Implement T6 completely, with tests, committing after each green step, until every
+Acceptance box is ticked. Do not start any other card. Do not add any npm dependency. Finish by
+opening a PR that includes manual Phantom test steps. Then stop.
 ```

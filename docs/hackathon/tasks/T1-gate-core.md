@@ -1,6 +1,6 @@
 # T1 — Gate core: host server, downstreams, config, audit log
 
-> **給 Jeff**：Agent A（Claude Code）週五晚上跑，接著做 T2。預估 3–5 小時。
+> **給 Jeff**：第一輪（Agent A）。做完開自己的 PR 就停；T2 等這張合併後，從最新 `main` 另開任務。預估 3–5 小時。
 > 驗收方法：`npm test` 全綠，而且 `test/gate-core.test.mjs` 裡有「host → gate → fake server」的完整 stdio 往返。
 
 Branch: `gate/core` · Depends on: nothing · Blocks: T2, I1, T8
@@ -114,10 +114,9 @@ Policy decisions (T2), transaction review (T4), checkpoint (T5), holds (T6), and
 
 ```
 You are Agent A in this repository. Read AGENTS.md, docs/hackathon/SPEC.md and
-docs/hackathon/tasks/T1-gate-core.md. Work on branch gate/core. Implement T1 completely,
-committing after each green step, until every Acceptance box is ticked. Then continue with
-docs/hackathon/tasks/T2-tool-policy.md on the same branch. Do not wait for confirmation; if
-blocked, follow AGENTS.md rule 9. Finish by opening a PR (or, if you cannot, write the PR
-description to docs/hackathon/pr/T1-T2.md) listing what is verified, what is UNVERIFIED, and
-any needs from other cards.
+docs/hackathon/tasks/T1-gate-core.md. Create branch gate/core from the latest main. Implement
+T1 completely, committing after each green step, until every Acceptance box is ticked. Do not
+start any other card. Do not wait for confirmation; if blocked, follow AGENTS.md rule 9. Finish
+by opening a PR (or, if you cannot, write the PR description to docs/hackathon/pr/T1.md)
+listing what is verified, what is UNVERIFIED, and any needs from other cards. Then stop.
 ```

@@ -1,6 +1,6 @@
 # T3 — Solana kit: decode, resolve, describe, simulate
 
-> **給 Jeff**：Agent B（Codex / GPT）週五晚上跑，接著做 T4。預估 4–6 小時。這是最需要 Solana
+> **給 Jeff**：第一輪（Agent B，Codex / GPT）。做完開 PR 就停；T4 等這張合併後另開任務。預估 4–6 小時。這是最需要 Solana
 > 細節正確的一張卡。驗收方法：`npm test` 全綠；週六你用 `scripts/hackathon/decode-tx.mjs`
 > 解一筆真的 Jupiter order，看結果是否合理。
 
@@ -67,9 +67,8 @@ SPEC §5.4 (exact signatures), I7, I9. Existing `src/solana/rpc.mjs` and its tes
 
 ```
 You are Agent B in this repository. Read AGENTS.md, docs/hackathon/SPEC.md and
-docs/hackathon/tasks/T3-solana-kit.md. Work on branch gate/tx. Implement T3 completely, with
-tests, committing after each green step, until every Acceptance box is ticked. Then continue
-with docs/hackathon/tasks/T4-review-and-tx-policy.md on the same branch. Do not add any npm
-dependency. Finish by opening a PR listing what is verified, what is UNVERIFIED, and needs from
-other cards.
+docs/hackathon/tasks/T3-solana-kit.md. Create branch gate/tx from the latest main. Implement T3
+completely, with tests, committing after each green step, until every Acceptance box is ticked.
+Do not start any other card. Do not add any npm dependency. Finish by opening a PR listing what
+is verified, what is UNVERIFIED, and needs from other cards. Then stop.
 ```

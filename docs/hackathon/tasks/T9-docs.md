@@ -1,6 +1,6 @@
 # T9 — README rewrite and demo script
 
-> **給 Jeff**：Agent C 週六晚上跑（I1 合併後最好，沒合併也可以先寫）。預估 2 小時。
+> **給 Jeff**：第三輪（週六晚上，雲端過夜）。I1 合併後最好，沒合併也可以先寫。預估 2 小時。
 > README 是判審第一眼看到的東西：第一段講產品，第二段講證據，限制放後面。
 
 Branch: `gate/docs` from `main` · Depends on: I1 for exact commands (write placeholders if not merged)

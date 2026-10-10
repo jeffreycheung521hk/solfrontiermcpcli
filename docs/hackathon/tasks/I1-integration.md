@@ -1,8 +1,8 @@
 # I1 — Integration: the pipeline
 
-> **給 Jeff**：週六白天，**本機** Claude Code（Agent A），你坐在旁邊一起測。前提：T1–T7 的 PR
+> **給 Jeff**：週六下午到晚上，**本機** Claude Code，你坐在旁邊一起測。前提：T1–T7 的 PR
 > 都已合併進 `main`。預估 4–6 小時（含你在 Claude Desktop / Phantom / devnet 的實測）。
-> 這是整個比賽最關鍵的一天：15:00 要過 CP1，18:00 是 K1。
+> 這是整個比賽最關鍵的一段：21:00 要過 CP1，22:00 是 K1。
 
 Branch: `gate/integrate` from `main` after merges · Depends on: T1–T7 · Blocks: demo, T8 live checks
 

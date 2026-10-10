@@ -1,6 +1,6 @@
 # T8 — `sfcli audit --log`: re-verify the evidence
 
-> **給 Jeff**：Agent B 週六晚上跑（T1 已合併後）。預估 2 小時。
+> **給 Jeff**：第二輪：T1 和 T3 都合併後就能開跑。預估 2 小時。
 > 驗收方法：週日 mainnet proof 之後，`node src/index.mjs audit --log sfgate-audit.mainnet.jsonl`
 > 印出 chain OK + 那筆 mainnet 交易 PASS。
 

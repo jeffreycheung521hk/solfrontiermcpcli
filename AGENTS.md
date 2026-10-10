@@ -27,7 +27,10 @@ You are building **SolFrontier Gate** during a hackathon sprint that ends 2026-1
 8. **Small commits.** Conventional messages: `feat(gate): …`, `fix(solana): …`, `test(gate): …`.
    One card = one branch = one PR. Use the branch name in your card; if your environment forces
    a prefix (for example `claude/` or `codex/`), keep the card's name as the rest of the branch
-   name (`claude/gate-core`) and put the card id in the PR title.
+   name (`claude/gate-core`) and put the card id in the PR title. When your card's Acceptance
+   list is done, open your PR and **stop**: never start a second card in the same task or on the
+   same branch. A card that depends on another starts from the latest `main` after that card's
+   PR is merged.
 9. **Blocked?** If the spec is ambiguous or you are stuck for more than ~30 minutes, append the
    question to `docs/hackathon/questions/<your card id>.md` (e.g. `questions/T3.md`; one file per
    card so parallel branches never conflict), choose the fail-closed interpretation, note the

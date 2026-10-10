@@ -1,9 +1,9 @@
 # T5 — RPC checkpoint (loopback JSON-RPC proxy + WebSocket tunnel)
 
-> **給 Jeff**：Agent C 做完 T7 後在同一個 branch 接著做。預估 2–3 小時。
-> 這張卡是「可砍」的（K1）：週六 18:00 還接不上就砍，產品仍有 tool 層 + 交易參數審查。
+> **給 Jeff**：不依賴任何卡。第一輪有空位就一起開（否則第二輪），獨立任務、獨立 branch。預估 2–3 小時。
+> 這張卡是「可砍」的（K1）：到 K1 還接不上就砍，產品仍有 tool 層 + 交易參數審查。
 
-Branch: `gate/fixtures` (after T7) · Depends on: nothing · Blocks: I1 (RPC path)
+Branch: `gate/checkpoint`, created from the latest `main` · Depends on: nothing · Blocks: I1 (RPC path)
 
 ## Goal
 
@@ -61,10 +61,10 @@ SPEC §5.7 (exact contract), I4, I7, I11. Pattern for an in-test HTTP server:
 
 ## Launch prompt
 
-Continue from T7 on `gate/fixtures`. Fresh session:
-
 ```
-You are Agent C. Read AGENTS.md, docs/hackathon/SPEC.md and
-docs/hackathon/tasks/T5-rpc-checkpoint.md. Work on branch gate/fixtures. Implement T5 until
-every Acceptance box is ticked, committing after each green step, then open or update the PR.
+You are Agent E in this repository. Read AGENTS.md, docs/hackathon/SPEC.md and
+docs/hackathon/tasks/T5-rpc-checkpoint.md. Create branch gate/checkpoint from the latest main.
+Implement T5 until every Acceptance box is ticked, committing after each green step. Do not
+start any other card. Do not add any npm dependency. Finish by opening a PR listing what is
+verified, what is UNVERIFIED, and needs from other cards. Then stop.
 ```
