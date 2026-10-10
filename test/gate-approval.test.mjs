@@ -5,6 +5,12 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
+import { spawn as childSpawn } from 'node:child_process';
+import http from 'node:http';
+import vm from 'node:vm';
+import { startApprovalServer, CSP, jsonReplacer } from '../src/gate/approval-server.mjs';
+import { PAGE_HTML, APP_JS } from '../src/gate/approval-page.mjs';
+import { notifyHold, escapeAppleScript } from '../src/gate/notify.mjs';
 import {
   HoldQueue,
   HoldError,
@@ -381,5 +387,531 @@ describe('HoldQueue', () => {
     queue.close();
     assert.deepEqual(await waiting, { status: 'cancelled', reason: 'gate stopping' });
     assert.equal(timerCount(), 0);
+  });
+});
+
+// --- approval server ------------------------------------------------------
+
+/** Raw HTTP so the test controls Host and Origin exactly (fetch would not let it). */
+function request(port, { method = 'GET', path = '/', headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: '127.0.0.1', port, method, path, headers: { host: `127.0.0.1:${port}`, connection: 'close', ...headers } },
+      (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          text += chunk;
+        });
+        res.on('end', () => {
+          let json = null;
+          try {
+            json = JSON.parse(text);
+          } catch {
+            json = null;
+          }
+          resolve({ status: res.statusCode, headers: res.headers, text, json });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.end(body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body));
+  });
+}
+
+function post(port, path, body, headers = {}) {
+  return request(port, { method: 'POST', path, body, headers: { 'content-type': 'application/json', ...headers } });
+}
+
+const b64 = (bytes) => Buffer.from(bytes).toString('base64');
+
+async function withServer(options, fn) {
+  const approver = wallet();
+  const ctl = manualQueue({ approver: approver.pubkey });
+  const lines = [];
+  const server = await startApprovalServer({
+    holds: ctl.queue,
+    approver: approver.pubkey,
+    cluster: 'devnet',
+    port: 0,
+    logger: (line) => lines.push(line),
+    ...options,
+  });
+  try {
+    await fn({ ...ctl, approver, server, port: server.port, lines });
+  } finally {
+    await server.close();
+    ctl.queue.close();
+  }
+}
+
+describe('approval server', () => {
+  test('binds 127.0.0.1 and serves the page with the CSP header', async () => {
+    await withServer({}, async ({ server, port }) => {
+      assert.equal(server.url, `http://127.0.0.1:${port}`);
+      const page = await request(port, { path: '/' });
+      assert.equal(page.status, 200);
+      assert.match(page.headers['content-type'], /^text\/html/);
+      assert.equal(
+        page.headers['content-security-policy'],
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; " +
+          "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      );
+      assert.equal(page.headers['content-security-policy'], CSP);
+      assert.equal(page.text, PAGE_HTML);
+      const app = await request(port, { path: '/app.js' });
+      assert.equal(app.status, 200);
+      assert.match(app.headers['content-type'], /^text\/javascript/);
+      assert.equal(app.text, APP_JS);
+      assert.equal(app.headers['content-security-policy'], CSP);
+    });
+  });
+
+  test('lists pending holds with their approval message; BigInt becomes a string', async () => {
+    await withServer({}, async ({ queue, port, approver }) => {
+      const hold = queue.add({ kind: 'tool-arg', tool: 'wallet.sign_and_send', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const list = await request(port, { path: '/api/holds' });
+      assert.equal(list.status, 200);
+      assert.equal(list.json.approver, approver.pubkey);
+      assert.equal(list.json.method, 'wallet-signature');
+      assert.equal(list.json.cluster, 'devnet');
+      assert.equal(list.json.now, '2026-10-10T03:12:45.123Z');
+      assert.equal(list.json.holds.length, 1);
+      const view = list.json.holds[0];
+      assert.equal(view.id, hold.id);
+      assert.equal(view.approvalMessage, hold.approvalMessage);
+      assert.equal(view.summaryLine, hold.review.summaryLine);
+      assert.equal(view.messageSha256, HASH);
+      assert.equal(view.instructions[0].lamports, '1000000');
+      assert.equal(view.parentIds, undefined);
+      const one = await request(port, { path: `/api/holds/${hold.id}` });
+      assert.equal(one.status, 200);
+      assert.equal(one.json.hold.status, 'pending');
+    });
+  });
+
+  test('jsonReplacer turns BigInt into decimal strings', () => {
+    assert.equal(JSON.stringify({ a: 2n ** 70n, b: [1n] }, jsonReplacer), '{"a":"1180591620717411303424","b":["1"]}');
+  });
+
+  test('the runtime approver signs the message ⇒ 200; waitFor resolves approved', async () => {
+    await withServer({}, async ({ queue, port, approver, lines }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const waiting = queue.waitFor(hold.id);
+      const signature = approver.sign(hold.approvalMessage);
+      const res = await post(port, `/api/holds/${hold.id}/approve`, { publicKey: approver.pubkey, signature: b64(signature) });
+      assert.equal(res.status, 200, res.text);
+      assert.equal(res.json.hold.status, 'approved');
+      assert.equal(res.json.hold.approvalMethod, 'wallet-signature');
+      const outcome = await waiting;
+      assert.equal(outcome.status, 'approved');
+      assert.deepEqual(outcome.approval, { publicKey: approver.pubkey, signature, method: 'wallet-signature' });
+      assert.ok(lines.some((l) => l.includes(`hold ${hold.id} approved (wallet-signature)`)));
+      assert.ok(!lines.join('\n').includes(b64(signature)), 'signatures are not logged');
+    });
+  });
+
+  test('wrong key, tampered message, truncated signature ⇒ 400 and still pending', async () => {
+    await withServer({}, async ({ queue, port, approver }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const other = wallet();
+      const good = approver.sign(hold.approvalMessage);
+      const attempts = {
+        'wrong key': { publicKey: other.pubkey, signature: b64(other.sign(hold.approvalMessage)) },
+        'wrong key claiming to be the approver': { publicKey: approver.pubkey, signature: b64(other.sign(hold.approvalMessage)) },
+        'tampered message': { publicKey: approver.pubkey, signature: b64(approver.sign(hold.approvalMessage.replace('devnet', 'mainnet-beta'))) },
+        'truncated signature': { publicKey: approver.pubkey, signature: b64(good.slice(0, 63)) },
+        'empty signature': { publicKey: approver.pubkey, signature: '' },
+        'signature not base64': { publicKey: approver.pubkey, signature: '!!!' },
+        'no public key': { signature: b64(good) },
+      };
+      for (const [name, body] of Object.entries(attempts)) {
+        const res = await post(port, `/api/holds/${hold.id}/approve`, body);
+        assert.equal(res.status, 400, `${name}: ${res.text}`);
+        assert.equal(queue.get(hold.id).status, 'pending', name);
+      }
+      // ...and the genuine signature still works afterwards.
+      const ok = await post(port, `/api/holds/${hold.id}/approve`, { publicKey: approver.pubkey, signature: b64(good) });
+      assert.equal(ok.status, 200);
+    });
+  });
+
+  test('double approve ⇒ 409', async () => {
+    await withServer({}, async ({ queue, port, approver }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const body = { publicKey: approver.pubkey, signature: b64(approver.sign(hold.approvalMessage)) };
+      assert.equal((await post(port, `/api/holds/${hold.id}/approve`, body)).status, 200);
+      const again = await post(port, `/api/holds/${hold.id}/approve`, body);
+      assert.equal(again.status, 409);
+      assert.equal(again.json.error, 'already_decided');
+    });
+  });
+
+  test('approve after expiry ⇒ 410 and waitFor resolved expired', async () => {
+    await withServer({}, async ({ queue, port, approver, advance }) => {
+      const hold = queue.add({ kind: 'rpc-send', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const waiting = queue.waitFor(hold.id);
+      advance(40_001);
+      const res = await post(port, `/api/holds/${hold.id}/approve`, { publicKey: approver.pubkey, signature: b64(approver.sign(hold.approvalMessage)) });
+      assert.equal(res.status, 410);
+      assert.deepEqual(await waiting, { status: 'expired' });
+      assert.equal((await post(port, `/api/holds/${hold.id}/reject`, {})).status, 410);
+      assert.deepEqual((await request(port, { path: '/api/holds' })).json.holds, []);
+    });
+  });
+
+  test('unknown hold ⇒ 404', async () => {
+    await withServer({}, async ({ port, approver }) => {
+      assert.equal((await request(port, { path: '/api/holds/ffffffffffff' })).status, 404);
+      assert.equal((await post(port, '/api/holds/ffffffffffff/approve', { publicKey: approver.pubkey, signature: b64(new Uint8Array(64)) })).status, 404);
+      assert.equal((await post(port, '/api/holds/ffffffffffff/reject', {})).status, 404);
+      assert.equal((await request(port, { path: '/nope' })).status, 404);
+    });
+  });
+
+  test('reject resolves the waiter; reject is allowed without a signature', async () => {
+    await withServer({}, async ({ queue, port }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const waiting = queue.waitFor(hold.id);
+      const res = await post(port, `/api/holds/${hold.id}/reject`, { reason: 'looks wrong' });
+      assert.equal(res.status, 200);
+      assert.deepEqual(await waiting, { status: 'rejected', reason: 'looks wrong' });
+      assert.equal((await post(port, `/api/holds/${hold.id}/reject`, {})).status, 409);
+    });
+  });
+
+  test('a cancelled hold cannot be approved over HTTP (409)', async () => {
+    await withServer({}, async ({ queue, port, approver }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40, parentIds: ['call-9'] });
+      queue.cancelWhere((h) => h.parentIds.includes('call-9'), 'host cancelled');
+      const res = await post(port, `/api/holds/${hold.id}/approve`, { publicKey: approver.pubkey, signature: b64(approver.sign(hold.approvalMessage)) });
+      assert.equal(res.status, 409);
+    });
+  });
+
+  test('wrong Host ⇒ 403 (DNS rebinding)', async () => {
+    await withServer({}, async ({ queue, port }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      for (const host of ['evil.example', `evil.example:${port}`, `127.0.0.1:${port + 1}`, '127.0.0.1', `[::1]:${port}`, `127.0.0.1:${port}.evil.example`]) {
+        const res = await request(port, { path: '/api/holds', headers: { host } });
+        assert.equal(res.status, 403, host);
+      }
+      const rejectAttempt = await post(port, `/api/holds/${hold.id}/reject`, {}, { host: 'evil.example' });
+      assert.equal(rejectAttempt.status, 403);
+      assert.equal(queue.get(hold.id).status, 'pending');
+      assert.equal((await request(port, { path: '/', headers: { host: `localhost:${port}` } })).status, 200);
+    });
+  });
+
+  test('foreign Origin ⇒ 403; own origin is fine', async () => {
+    await withServer({}, async ({ queue, port, approver }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const body = { publicKey: approver.pubkey, signature: b64(approver.sign(hold.approvalMessage)) };
+      for (const origin of ['http://evil.example', 'null', `http://localhost:${port}`, `https://127.0.0.1:${port}`, `http://127.0.0.1:${port + 1}`]) {
+        const res = await post(port, `/api/holds/${hold.id}/approve`, body, { origin });
+        assert.equal(res.status, 403, origin);
+        assert.equal(queue.get(hold.id).status, 'pending', origin);
+      }
+      assert.equal((await request(port, { path: '/api/holds', headers: { origin: 'http://evil.example' } })).status, 403);
+      const ok = await post(port, `/api/holds/${hold.id}/approve`, body, { origin: `http://127.0.0.1:${port}` });
+      assert.equal(ok.status, 200);
+    });
+  });
+
+  test('non-JSON POST ⇒ 415; bad JSON ⇒ 400; wrong verb ⇒ 405; huge body ⇒ 413', async () => {
+    await withServer({}, async ({ queue, port }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      for (const type of ['text/plain', 'application/x-www-form-urlencoded', 'multipart/form-data; boundary=x', undefined]) {
+        const headers = type === undefined ? {} : { 'content-type': type };
+        const res = await request(port, { method: 'POST', path: `/api/holds/${hold.id}/reject`, headers, body: '{}' });
+        assert.equal(res.status, 415, String(type));
+      }
+      assert.equal(queue.get(hold.id).status, 'pending');
+      assert.equal((await post(port, `/api/holds/${hold.id}/reject`, '{not json')).status, 400);
+      assert.equal((await post(port, `/api/holds/${hold.id}/reject`, '[]')).status, 400);
+      assert.equal((await request(port, { path: `/api/holds/${hold.id}/approve` })).status, 405);
+      assert.equal((await request(port, { method: 'DELETE', path: `/api/holds/${hold.id}` })).status, 405);
+      assert.equal((await request(port, { method: 'POST', path: '/' })).status, 405);
+      const big = await post(port, `/api/holds/${hold.id}/reject`, JSON.stringify({ reason: 'x'.repeat(20_000) }));
+      assert.equal(big.status, 413);
+      assert.equal(queue.get(hold.id).status, 'pending');
+      const typed = await post(port, `/api/holds/${hold.id}/reject`, {}, { 'content-type': 'application/json; charset=utf-8' });
+      assert.equal(typed.status, 200);
+    });
+  });
+
+  test('local-button is refused on mainnet-beta at start', () => {
+    const approver = wallet();
+    const queue = new HoldQueue({ approver: approver.pubkey });
+    assert.throws(
+      () => startApprovalServer({ holds: queue, approver: approver.pubkey, method: 'local-button', cluster: 'mainnet-beta', port: 0 }),
+      /local-button/,
+    );
+  });
+
+  test('local-button on devnet approves as insecure-local-button', async () => {
+    await withServer({ method: 'local-button' }, async ({ queue, port }) => {
+      const list = await request(port, { path: '/api/holds' });
+      assert.equal(list.json.method, 'local-button');
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const waiting = queue.waitFor(hold.id);
+      const res = await post(port, `/api/holds/${hold.id}/approve`, { method: 'local-button' });
+      assert.equal(res.status, 200);
+      assert.deepEqual(await waiting, { status: 'approved', approval: { publicKey: null, signature: null, method: 'insecure-local-button' } });
+    });
+  });
+
+  test('local-button request in wallet-signature mode ⇒ 403, still pending', async () => {
+    await withServer({}, async ({ queue, port }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const res = await post(port, `/api/holds/${hold.id}/approve`, { method: 'local-button' });
+      assert.equal(res.status, 403);
+      assert.equal(queue.get(hold.id).status, 'pending');
+    });
+  });
+
+  test('refuses to start with a missing, malformed or mismatched approver', () => {
+    const a = wallet();
+    const b = wallet();
+    const queue = new HoldQueue({ approver: a.pubkey });
+    assert.throws(() => startApprovalServer({ holds: queue, cluster: 'devnet', port: 0 }));
+    assert.throws(() => startApprovalServer({ holds: queue, approver: 'not-a-key', cluster: 'devnet', port: 0 }));
+    assert.throws(() => startApprovalServer({ holds: queue, approver: b.pubkey, cluster: 'devnet', port: 0 }), /does not match/);
+    assert.throws(() => startApprovalServer({ holds: queue, approver: a.pubkey, cluster: 'testnet', port: 0 }));
+    assert.throws(() => startApprovalServer({ holds: queue, approver: a.pubkey, method: 'telepathy', cluster: 'devnet', port: 0 }));
+    assert.throws(() => startApprovalServer({ holds: {}, approver: a.pubkey, cluster: 'devnet', port: 0 }));
+  });
+
+  test('a busy port rejects the start promise instead of hanging', async () => {
+    await withServer({}, async ({ queue, port, approver }) => {
+      await assert.rejects(startApprovalServer({ holds: queue, approver: approver.pubkey, cluster: 'devnet', port }), { code: 'EADDRINUSE' });
+    });
+  });
+});
+
+// --- approval page --------------------------------------------------------
+
+describe('approval page', () => {
+  test('loads no external resources and no inline script', () => {
+    assert.ok(!/https?:\/\//i.test(PAGE_HTML), 'no absolute URLs in the page');
+    assert.ok(!/\b(src|href)\s*=\s*["']?\/\//i.test(PAGE_HTML), 'no protocol-relative URLs');
+    const scripts = [...PAGE_HTML.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    assert.equal(scripts.length, 1);
+    assert.match(scripts[0][1], /src="\/app\.js"/);
+    assert.equal(scripts[0][2].trim(), '');
+    assert.ok(!/\son[a-z]+\s*=/i.test(PAGE_HTML), 'no inline event handlers');
+    assert.ok(!/https?:\/\//i.test(APP_JS), 'app.js talks to its own origin only');
+  });
+
+  test('app.js parses, never writes HTML, and follows the Phantom flow', () => {
+    new vm.Script(APP_JS); // throws on a syntax error
+    assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/.test(APP_JS));
+    assert.match(APP_JS, /window\.phantom && window\.phantom\.solana/);
+    assert.match(APP_JS, /signMessage\(new TextEncoder\(\)\.encode\(hold\.approvalMessage\), 'utf8'\)/);
+    assert.match(APP_JS, /\/api\/holds/);
+  });
+});
+
+// A just-big-enough DOM to run app.js headless against the real server.
+class FakeElement {
+  constructor(tag) {
+    this.tag = tag;
+    this.children = [];
+    this.parent = null;
+    this.textContent = '';
+    this.className = '';
+    this.hidden = false;
+    this.disabled = false;
+    this.type = '';
+    this.listeners = {};
+    this.classList = { add: (...names) => { this.className = `${this.className} ${names.join(' ')}`.trim(); } };
+  }
+  appendChild(child) {
+    child.parent = this;
+    this.children.push(child);
+    return child;
+  }
+  addEventListener(type, fn) {
+    this.listeners[type] = fn;
+  }
+  remove() {
+    if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this);
+  }
+  *walk() {
+    yield this;
+    for (const child of this.children) yield* child.walk();
+  }
+  text() {
+    return [...this.walk()].map((n) => n.textContent).join(' ');
+  }
+}
+
+async function runPage(port, provider) {
+  const ids = Object.fromEntries(['holds', 'empty', 'status', 'mode'].map((id) => [id, new FakeElement('div')]));
+  const context = vm.createContext({
+    window: provider === undefined ? {} : { phantom: { solana: provider } },
+    document: { getElementById: (id) => ids[id], createElement: (tag) => new FakeElement(tag) },
+    fetch: (path, init) => fetch(`http://127.0.0.1:${port}${path}`, init),
+    TextEncoder,
+    btoa,
+    setTimeout: () => 0, // the test drives polling itself
+    setInterval: () => 0,
+  });
+  vm.runInContext(APP_JS, context);
+  for (let i = 0; i < 100 && !ids.holds.children.length; i++) await new Promise((r) => setTimeout(r, 20));
+  const card = ids.holds.children[0];
+  assert.ok(card, 'the page rendered the pending hold');
+  const button = (label) => [...card.walk()].find((n) => n.tag === 'button' && n.textContent === label);
+  return { ids, card, button };
+}
+
+function fakePhantom(signer, { connectAs = signer } = {}) {
+  const calls = [];
+  const key = (w) => ({ toString: () => w.pubkey });
+  return {
+    calls,
+    isPhantom: true,
+    connect: async () => {
+      calls.push('connect');
+      return { publicKey: key(connectAs) };
+    },
+    signMessage: async (bytes, display) => {
+      calls.push(['signMessage', display]);
+      return { signature: signer.sign(new TextDecoder().decode(bytes)), publicKey: key(signer) };
+    },
+  };
+}
+
+describe('approval page against the server (headless)', { skip: typeof fetch !== 'function' && 'needs global fetch' }, () => {
+  test('Approve with wallet: connect, signMessage(utf8), POST ⇒ approved', async () => {
+    await withServer({}, async ({ queue, port, approver }) => {
+      const hold = queue.add({ kind: 'tool-arg', tool: 'wallet.sign_and_send', review: review({ summaryLine: '<img src=x onerror=alert(1)>' }), cluster: 'devnet', timeoutSec: 40 });
+      const waiting = queue.waitFor(hold.id);
+      const phantom = fakePhantom(approver);
+      const { card, button } = await runPage(port, phantom);
+      assert.ok(card.text().includes('<img src=x onerror=alert(1)>'), 'review text is shown as text');
+      assert.ok(card.text().includes(hold.approvalMessage));
+      await button('Approve with wallet').listeners.click();
+      assert.deepEqual(phantom.calls, ['connect', ['signMessage', 'utf8']]);
+      const outcome = await waiting;
+      assert.equal(outcome.status, 'approved');
+      assert.equal(outcome.approval.method, 'wallet-signature');
+    });
+  });
+
+  test('a connected wallet that is not the approver is refused before signing', async () => {
+    await withServer({}, async ({ queue, port, approver }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const stranger = wallet();
+      const phantom = fakePhantom(stranger);
+      const { card, button } = await runPage(port, phantom);
+      await button('Approve with wallet').listeners.click();
+      assert.deepEqual(phantom.calls, ['connect']);
+      assert.match(card.text(), /is not the configured approver/);
+      assert.equal(queue.get(hold.id).status, 'pending');
+      assert.ok(approver.pubkey);
+    });
+  });
+
+  test('no Phantom: a clear error, hold still pending; Reject still works', async () => {
+    await withServer({}, async ({ queue, port }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const waiting = queue.waitFor(hold.id);
+      const { card, button } = await runPage(port, undefined);
+      await button('Approve with wallet').listeners.click();
+      assert.match(card.text(), /Phantom was not found/);
+      assert.equal(queue.get(hold.id).status, 'pending');
+      await button('Reject').listeners.click();
+      assert.equal((await waiting).status, 'rejected');
+    });
+  });
+
+  test('local-button mode shows a plain approve button', async () => {
+    await withServer({ method: 'local-button' }, async ({ queue, port }) => {
+      const hold = queue.add({ kind: 'tool-arg', review: review(), cluster: 'devnet', timeoutSec: 40 });
+      const waiting = queue.waitFor(hold.id);
+      const { ids, button } = await runPage(port, undefined);
+      assert.match(ids.mode.textContent, /INSECURE local-button/);
+      await button('Approve (insecure local button)').listeners.click();
+      assert.equal((await waiting).approval.method, 'insecure-local-button');
+    });
+  });
+});
+
+// --- notify ---------------------------------------------------------------
+
+function recorder() {
+  const calls = [];
+  const spawn = (command, args, options) => {
+    calls.push({ command, args, options });
+    return { on() {}, unref() {} };
+  };
+  return { calls, spawn };
+}
+
+describe('notifyHold', () => {
+  const url = 'http://127.0.0.1:8787/';
+
+  test('macOS: osascript notification with escaped text, then open the page', () => {
+    const { calls, spawn } = recorder();
+    notifyHold({ title: 'SolFrontier Gate', body: 'say "hi" \\ bye\nnow', url, platform: 'darwin', spawn });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].command, 'osascript');
+    assert.deepEqual(calls[0].args, ['-e', 'display notification "say \\"hi\\" \\\\ bye now" with title "SolFrontier Gate"']);
+    assert.deepEqual(calls[1], { command: 'open', args: [url], options: calls[1].options });
+    for (const call of calls) {
+      assert.equal(call.options.detached, true);
+      assert.equal(call.options.stdio, 'ignore');
+    }
+  });
+
+  test('escapeAppleScript neutralises quotes, backslashes and control characters', () => {
+    assert.equal(escapeAppleScript('a"b\\c\rd'), 'a\\"b\\\\c d');
+    assert.equal(escapeAppleScript(undefined), '');
+  });
+
+  test('Linux: xdg-open only; other platforms: nothing; disabled: nothing', () => {
+    const linux = recorder();
+    notifyHold({ body: 'x', url, platform: 'linux', spawn: linux.spawn });
+    assert.deepEqual(linux.calls.map((c) => [c.command, c.args]), [['xdg-open', [url]]]);
+    const win = recorder();
+    notifyHold({ body: 'x', url, platform: 'win32', spawn: win.spawn });
+    assert.equal(win.calls.length, 0);
+    const off = recorder();
+    notifyHold({ body: 'x', url, enabled: false, platform: 'darwin', spawn: off.spawn });
+    assert.equal(off.calls.length, 0);
+    const noBrowser = recorder();
+    notifyHold({ body: 'x', url, openUrl: false, platform: 'darwin', spawn: noBrowser.spawn });
+    assert.deepEqual(noBrowser.calls.map((c) => c.command), ['osascript']);
+  });
+
+  test('only a loopback http URL is ever opened', () => {
+    for (const bad of ['file:///etc/passwd', 'https://evil.example/', 'http://evil.example:8787/', 'http://127.0.0.1:8787@evil.example/', '-a Calculator', 'javascript:alert(1)']) {
+      const { calls, spawn } = recorder();
+      notifyHold({ body: 'x', url: bad, platform: 'darwin', spawn });
+      assert.deepEqual(calls.map((c) => c.command), ['osascript'], bad);
+    }
+  });
+
+  test('a nonexistent binary does not throw (and its async error is swallowed)', async () => {
+    let spawned = 0;
+    const missing = (command, args, options) => {
+      spawned++;
+      return childSpawn(`sfgate-no-such-binary-${command}`, args, options);
+    };
+    assert.doesNotThrow(() => notifyHold({ body: 'x', url, platform: 'darwin', spawn: missing }));
+    assert.doesNotThrow(() => notifyHold({ body: 'x', url, platform: 'linux', spawn: missing }));
+    assert.equal(spawned, 3);
+    // An unhandled 'error' event would crash this process before the next tick.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+
+  test('a spawn that throws synchronously, or returns nothing, does not throw', () => {
+    const throwing = () => {
+      throw new Error('EPERM');
+    };
+    assert.doesNotThrow(() => notifyHold({ body: 'x', url, platform: 'darwin', spawn: throwing }));
+    assert.doesNotThrow(() => notifyHold({ body: 'x', url, platform: 'linux', spawn: () => undefined }));
+    assert.doesNotThrow(() => notifyHold({ platform: 'darwin', spawn: throwing, title: { toString: null } }));
   });
 });
