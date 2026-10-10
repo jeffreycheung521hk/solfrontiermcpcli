@@ -53,9 +53,15 @@ export function createHostServer({ input, output, handlers, version = '0.0.0', r
   function send(message) {
     if (output.destroyed || output.writableEnded) return;
     // JSON escaping changes quotes, backslashes and control characters in a
-    // URL. Scrub string values first, while they still match the redactor's
-    // in-memory secrets; keep the frame scrub for text in property names.
-    const text = JSON.stringify(message, (key, value) => typeof value === 'string' ? redact(value) : value);
+    // URL. Scrub string values and object keys while they still match the
+    // in-memory secrets; a downstream can echo a URL in either position.
+    const text = JSON.stringify(message, (_key, value) => {
+      if (typeof value === 'string') return redact(value);
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [redact(key), item]));
+      }
+      return value;
+    });
     output.write(`${redact(text)}\n`);
   }
 

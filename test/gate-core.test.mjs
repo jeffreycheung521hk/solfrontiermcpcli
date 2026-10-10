@@ -294,7 +294,7 @@ describe('host server', () => {
     const url = 'http://127.0.0.1:9/path?marker=quote"and\\slash';
     const result = {
       content: [{ type: 'text', text: `upstream: ${url}` }],
-      structuredContent: { nested: [url], balance: 7, enabled: true },
+      structuredContent: { nested: [url], balance: 7, enabled: true, [url]: 'property name' },
     };
     const h = hostHarness({ listTools: async () => [], callTool: async () => result }, { redact: createRedactor([url]) });
     try {
@@ -302,7 +302,7 @@ describe('host server', () => {
       const response = await h.responseTo(8);
       assert.deepEqual(response.result, {
         content: [{ type: 'text', text: 'upstream: <redacted>' }],
-        structuredContent: { nested: ['<redacted>'], balance: 7, enabled: true },
+        structuredContent: { nested: ['<redacted>'], balance: 7, enabled: true, '<redacted>': 'property name' },
       });
       assert.ok(!h.lines[0].includes('quote'), 'escaped URL leaked in the protocol frame');
       assert.equal(result.structuredContent.nested[0], url, 'redaction mutated the handler result');
