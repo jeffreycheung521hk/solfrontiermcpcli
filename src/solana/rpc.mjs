@@ -17,9 +17,25 @@ export class SolanaRpc {
   #timeoutMs;
   #id = 1;
 
-  constructor({ timeoutMs = 15000, env } = {}) {
-    this.#url = requireRpcUrl(env);
+  /**
+   * @param {{ url?: string, timeoutMs?: number, env?: object }} [options]
+   *   `url` wins over SOLFRONTIER_RPC_URL: Gate reads its upstream from its own
+   *   env var (SFGATE_UPSTREAM_RPC_URL) and must not borrow the legacy one.
+   */
+  constructor({ url, timeoutMs = 15000, env } = {}) {
+    if (url !== undefined) {
+      if (typeof url !== 'string' || url.trim() === '') throw new TypeError('SolanaRpc url must be a non-empty string');
+      this.#url = url.trim();
+    } else {
+      this.#url = requireRpcUrl(env);
+    }
     this.#timeoutMs = timeoutMs;
+  }
+
+  // redact() only knows SOLFRONTIER_RPC_URL; an explicit url is scrubbed here
+  // first, so it never reaches a thrown message either (SPEC I4).
+  #scrub(text) {
+    return redact(String(text).split(this.#url).join('<rpc-redacted>'));
   }
 
   async call(method, params = []) {
@@ -32,7 +48,7 @@ export class SolanaRpc {
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch (err) {
-      throw new RpcError(`RPC ${method} failed: ${redact(err.message)}`);
+      throw new RpcError(`RPC ${method} failed: ${this.#scrub(err.message)}`);
     }
     if (!response.ok) throw new RpcError(`RPC ${method} returned HTTP ${response.status}`);
     let json;
@@ -42,7 +58,7 @@ export class SolanaRpc {
       throw new RpcError(`RPC ${method} returned a non-JSON body`);
     }
     if (json.error) {
-      throw new RpcError(`RPC ${method}: ${redact(json.error.message ?? JSON.stringify(json.error))}`);
+      throw new RpcError(`RPC ${method}: ${this.#scrub(json.error.message ?? JSON.stringify(json.error))}`);
     }
     return json.result;
   }
