@@ -429,36 +429,37 @@ function linkGroup({ signature, sources }, index) {
     return result(sends.length ? 'broken' : 'malformed', [], [problem]);
   }
 
-  if (sends.length) {
-    // Every forward of this signature must be backed by an approval for it.
-    let approved = null;
-    const problems = [];
-    for (const send of sends) {
-      if (!isId(send.sendId)) {
-        problems.push(`rpc_send_forwarded (line ${send.seq}) carries no sendId`);
-        continue;
-      }
-      const found = approvalsFor(send.sendId, send.seq, index);
-      if (found.kind === 'none') problems.push(`forwarded (line ${send.seq}) with no approval on record for ${send.sendId} (I2)`);
-      else if (found.kind === 'broken') problems.push(...found.problems);
-      else approved = approved === null ? found.hashes : new Set([...approved].filter((h) => found.hashes.has(h)));
-    }
-    if (!problems.length && approved.size === 0) problems.push('forwards of one signature were approved for different messages');
-    return problems.length ? result('broken', [], problems) : result('ok', approved);
-  }
-
-  // Tool results only. A later call that merely mentions the signature (a
-  // status lookup) links to nothing and is ignored; a broken link is not.
-  const approved = new Set();
+  // One signature is one message, so every record that claims this signature
+  // and links to an approval must have approved that same message: the landed
+  // hash has to be in the INTERSECTION of their approved sets. A union would
+  // let a server answer a later, differently approved call with an old
+  // signature and still verify. A forward must link (I2). A tool result that
+  // links to nothing (a status lookup, or a server that never showed Gate its
+  // transaction) adds no claim and is skipped; a broken link is never skipped.
+  let approved = null;
   const problems = [];
-  for (const tool of tools) {
-    if (!isId(tool.callId)) continue;
-    const found = approvalsFor(tool.callId, tool.seq, index);
-    if (found.kind === 'broken') problems.push(...found.problems);
-    else if (found.kind === 'ok') for (const h of found.hashes) approved.add(h);
+  for (const source of sources) {
+    const isSend = source.type === 'rpc_send_forwarded';
+    const id = isSend ? source.sendId : source.callId;
+    if (!isId(id)) {
+      if (isSend) problems.push(`rpc_send_forwarded (line ${source.seq}) carries no sendId`);
+      continue;
+    }
+    const found = approvalsFor(id, source.seq, index);
+    if (found.kind === 'none') {
+      if (isSend) problems.push(`forwarded (line ${source.seq}) with no approval on record for ${id} (I2)`);
+    } else if (found.kind === 'broken') {
+      problems.push(...found.problems);
+    } else {
+      approved = approved === null ? found.hashes : new Set([...approved].filter((h) => found.hashes.has(h)));
+    }
   }
   if (problems.length) return result('broken', [], problems);
-  return approved.size ? result('ok', approved) : result('none');
+  if (approved === null) return result('none');
+  if (approved.size === 0) {
+    return result('broken', [], [`the records on lines ${base.lines.join(', ')} were approved for different messages`]);
+  }
+  return result('ok', approved);
 }
 
 /** Fetch the landed transaction and compare it with what was approved. */
@@ -496,8 +497,13 @@ async function checkLanded(rpc, signature, approved, commitment) {
   const slot = Number.isSafeInteger(tx.slot) ? tx.slot : null;
   const problems = [];
   if (!approved.has(hash)) problems.push(`message ${short(hash, 12)} ≠ approved`);
-  if (!tx.meta || typeof tx.meta !== 'object') problems.push('no status metadata (success unprovable)');
-  else if (tx.meta.err != null) problems.push(`err ${JSON.stringify(tx.meta.err)}`);
+  // Success means `err` is present and exactly null. A meta object without it
+  // (a proxy or a truncated answer) proves nothing, so it fails closed.
+  if (!tx.meta || typeof tx.meta !== 'object' || !('err' in tx.meta)) {
+    problems.push('no execution status (meta.err missing; success unprovable)');
+  } else if (tx.meta.err !== null) {
+    problems.push(`err ${JSON.stringify(tx.meta.err)}`);
+  }
   return problems.length
     ? { status: FAIL, observed: `slot ${slot}: ${problems.join('; ')}`, slot, observedMessageSha256: hash }
     : { status: PASS, observed: `slot ${slot} · message matches · err null`, slot, observedMessageSha256: hash };

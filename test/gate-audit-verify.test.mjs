@@ -266,10 +266,13 @@ describe('ledger re-derivation with an injected fake RPC', () => {
     assert.match(row.observed, /err \{"InstructionError":\[0,\{"Custom":1\}\]\}/);
   });
 
-  test('missing status metadata ⇒ FAIL (success cannot be shown)', async () => {
+  test('missing status metadata, or meta without an err field ⇒ FAIL (success cannot be shown)', async () => {
     const tx = buildTx();
-    const report = await verifyAuditLog({ text: logText(sendFlow(tx)), rpc: fakeRpc({ [tx.signature]: landed(tx, null) }) });
-    assert.equal(txRows(report)[0].status, 'FAIL');
+    for (const meta of [null, { fee: 5000 }]) {
+      const report = await verifyAuditLog({ text: logText(sendFlow(tx)), rpc: fakeRpc({ [tx.signature]: landed(tx, meta) }) });
+      assert.equal(txRows(report)[0].status, 'FAIL', JSON.stringify(meta));
+      assert.match(txRows(report)[0].observed, /meta\.err missing/);
+    }
   });
 
   test('missing on chain ⇒ FAIL', async () => {
@@ -361,6 +364,46 @@ describe('linking a signature to the approved message', () => {
     const report = await verifyAuditLog({ text: logText(entries), rpc: fakeRpc({ [tx.signature]: landed(tx) }) });
     assert.equal(txRows(report).length, 1);
     assert.equal(txRows(report)[0].status, 'PASS');
+  });
+
+  test('two reviewed calls returning one signature must have approved the same message', async () => {
+    // A server answers a later, differently approved call with the signature
+    // of an earlier transaction. The landed message matches the first
+    // approval only; a union of approvals would wrongly verify it.
+    const a = buildTx();
+    const b = buildTx();
+    const replay = toolArgFlow(b).map(([type, payload]) =>
+      type === 'tool_result' ? [type, { ...payload, signature: a.signature }] : [type, payload]);
+    const ledger = { [a.signature]: landed(a) };
+    for (const entries of [[...toolArgFlow(a), ...replay], [...sendFlow(a), ...replay]]) {
+      const report = await verifyAuditLog({ text: logText(entries), rpc: fakeRpc(ledger) });
+      const rows = txRows(report);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].status, 'FAIL');
+      assert.match(rows[0].observed, /approved for different messages/);
+      const offline = await verifyAuditLog({ text: logText(entries), rpc: null });
+      assert.equal(txRows(offline)[0].status, 'FAIL', 'the log contradicts itself without any RPC');
+    }
+  });
+
+  test('one message reviewed twice (tool argument, then at the checkpoint) ⇒ PASS', async () => {
+    // sign_and_send with a naive wallet: Gate reviews the argument under the
+    // callId, the wallet signs the same message and sends it through the
+    // checkpoint, which reviews it again under a sendId.
+    const tx = buildTx();
+    const callId = hex(6);
+    const sendId = hex(6);
+    const [toolCall, ...argHold] = toolArgFlow(tx, { callId });
+    const toolResult = argHold.pop();
+    const send = sendFlow(tx, { callId, sendId }).slice(1, 5); // tx_review … rpc_send_forwarded
+    const entries = [toolCall, ...argHold, ...send, toolResult];
+    const rpc = fakeRpc({ [tx.signature]: landed(tx) });
+    const report = await verifyAuditLog({ text: logText(entries), rpc });
+    const rows = txRows(report);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, 'PASS', rows[0].observed);
+    assert.deepEqual(rows[0].approvedMessageSha256, [tx.messageSha256]);
+    assert.equal(rpc.calls.length, 1);
   });
 
   test('a send forwarded with no approval on record ⇒ FAIL, even without an RPC (I2)', async () => {
