@@ -197,11 +197,11 @@ describe('McpSession additions', () => {
 
 import { createHostServer } from '../src/gate/host-server.mjs';
 import { startDownstreams, splitToolName, downstreamEnv } from '../src/gate/downstreams.mjs';
-import { loadGateConfig, loadPettyCash, base58Encode, walletValue } from '../src/gate/config.mjs';
+import { loadGateConfig, loadPettyCash, base58Encode, walletValue, createRedactor } from '../src/gate/config.mjs';
 import { AuditLog, verifyChainText } from '../src/gate/audit-log.mjs';
 import { LineFramer } from '../src/mcp/framing.mjs';
 
-function hostHarness(handlers) {
+function hostHarness(handlers, options = {}) {
   const input = new PassThrough();
   const output = new PassThrough();
   const framer = new LineFramer();
@@ -214,7 +214,7 @@ function hostHarness(handlers) {
       for (const w of waiters.splice(0)) w.check(msg) || waiters.push(w);
     }
   });
-  const server = createHostServer({ input, output, handlers, version: '9.9.9' });
+  const server = createHostServer({ input, output, handlers, version: '9.9.9', ...options });
   const responseTo = (id, ms = 3000) =>
     new Promise((resolve, reject) => {
       const found = lines.map((l) => JSON.parse(l)).find((m) => m.id === id);
@@ -288,6 +288,28 @@ describe('host server', () => {
     assert.equal(msgs.find((m) => m.id === 6).error.code, -32602);
     h.input.end();
     await h.server.closed;
+  });
+
+  test('response strings are redacted before JSON escaping changes a URL', async () => {
+    const url = 'http://127.0.0.1:9/path?marker=quote"and\\slash';
+    const result = {
+      content: [{ type: 'text', text: `upstream: ${url}` }],
+      structuredContent: { nested: [url], balance: 7, enabled: true, [url]: 'property name' },
+    };
+    const h = hostHarness({ listTools: async () => [], callTool: async () => result }, { redact: createRedactor([url]) });
+    try {
+      h.send({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'leak' } });
+      const response = await h.responseTo(8);
+      assert.deepEqual(response.result, {
+        content: [{ type: 'text', text: 'upstream: <redacted>' }],
+        structuredContent: { nested: ['<redacted>'], balance: 7, enabled: true, '<redacted>': 'property name' },
+      });
+      assert.ok(!h.lines[0].includes('quote'), 'escaped URL leaked in the protocol frame');
+      assert.equal(result.structuredContent.nested[0], url, 'redaction mutated the handler result');
+    } finally {
+      h.input.end();
+      await h.server.closed;
+    }
   });
 
   test('calls run concurrently; a cancelled request gets no response', async () => {

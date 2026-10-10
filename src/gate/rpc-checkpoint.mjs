@@ -73,7 +73,7 @@ export async function startRpcCheckpoint({
   upstreamWsUrl,
   port,
   onSend,
-  deniedMethods = ['sendBundle'],
+  deniedMethods = ['sendBundle', 'requestAirdrop'],
   upstreamTimeoutMs = 30000,
   logger = () => {},
 } = {}) {
@@ -98,7 +98,12 @@ export async function startRpcCheckpoint({
   const denied = new Set(deniedMethods);
   const wsPort = port + 1;
 
-  const scrubUpstream = buildRedactor([upstreamUrl, upstream.href, upstreamWsUrl, upstreamWs.href]);
+  // An upstream can echo its Authorization header instead of the URL. Both
+  // the header and its base64 credential value carry the same credentials.
+  const scrubUpstream = buildRedactor([
+    upstreamUrl, upstream.href, upstreamWsUrl, upstreamWs.href,
+    upstreamAuth, upstreamAuth?.slice(6), upstreamWsAuth, upstreamWsAuth?.slice(6),
+  ]);
   const scrubOut = (text) => redactSensitive(scrubUpstream(text));
   const log = (line) => {
     try { logger(scrubOut(line)); } catch { /* a broken logger must not break the proxy */ }

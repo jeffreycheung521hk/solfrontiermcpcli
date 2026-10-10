@@ -323,6 +323,23 @@ describe('JSON-RPC handling', () => {
     }
   });
 
+  test('requestAirdrop is denied by default, including in a mixed batch', async () => {
+    const h = await harness();
+    try {
+      const airdrop = rpc(1, 'requestAirdrop', ['11111111111111111111111111111111', 1]);
+      const response = JSON.parse((await h.post('/', JSON.stringify(airdrop))).text);
+      assert.equal(response.error.code, RPC_METHOD_DENIED);
+      assert.equal(h.upstream.requests.length, 0);
+      const batch = JSON.parse((await h.post('/', JSON.stringify([airdrop, rpc(2, 'getSlot')]))).text);
+      assert.equal(batch[0].error.code, RPC_METHOD_DENIED);
+      assert.equal(batch[1].result.echo, 'getSlot');
+      assert.deepEqual(h.upstream.requests.map(({ body }) => JSON.parse(body).method), ['getSlot']);
+      assert.equal(h.sends.length, 0);
+    } finally {
+      await h.close();
+    }
+  });
+
   test('the request goes up as the parsed object, so a duplicate key cannot hide a send', async () => {
     // JSON.parse keeps the last "method"; an upstream parser that keeps the
     // first would see a send. Gate forwards what it checked, not the raw bytes.
@@ -365,6 +382,44 @@ describe('what goes upstream', () => {
       // Even the client's own Authorization header goes nowhere.
       await send(cp.port, { body: JSON.stringify(rpc(2, 'getSlot')), headers: { authorization: 'Basic Y2xpZW50OnNpZGU=' } });
       assert.equal(upstream.requests[1].headers.authorization, `Basic ${Buffer.from('gate-user:marker pass').toString('base64')}`);
+    } finally {
+      await cp.close();
+      await upstream.close();
+    }
+  });
+
+  test('HTTP and WebSocket Basic credentials are redacted from upstream echoes, refusals and logs', async () => {
+    const httpAuth = `Basic ${Buffer.from('gate-user:marker pass').toString('base64')}`;
+    const wsAuth = `Basic ${Buffer.from('socket-user:socket pass').toString('base64')}`;
+    const values = [httpAuth, httpAuth.slice(6), wsAuth, wsAuth.slice(6)];
+    const upstream = await fakeUpstream((body, req) => ({ body: JSON.stringify({
+      jsonrpc: '2.0', id: JSON.parse(body).id,
+      result: [req.headers.authorization, ...values],
+    }) }));
+    const lines = [];
+    const cp = await startCheckpoint({
+      upstreamUrl: upstream.url.replace('http://', 'http://gate-user:marker%20pass@'),
+      upstreamWsUrl: upstream.url.replace('http://', 'ws://socket-user:socket%20pass@'),
+      logger: (line) => lines.push(line),
+      onSend: async (bytes, meta) => {
+        if (meta.requestId === 3) throw new Error(values.join(' '));
+        return { forward: false, message: values.join(' '), data: { echoes: values } };
+      },
+    });
+    try {
+      const read = await send(cp.port, { body: JSON.stringify(rpc(1, 'getSlot')) });
+      assert.equal(upstream.requests[0].headers.authorization, httpAuth);
+      assert.deepEqual(JSON.parse(read.text).result, Array(5).fill('<upstream-redacted>'));
+      const refused = await send(cp.port, { body: JSON.stringify(rpc(2, 'sendTransaction', [base58(txBytes())])) });
+      assert.equal(JSON.parse(refused.text).error.code, RPC_SEND_REFUSED);
+      assert.deepEqual(JSON.parse(refused.text).error.data.echoes, Array(4).fill('<upstream-redacted>'));
+      const thrown = await send(cp.port, { body: JSON.stringify(rpc(3, 'sendTransaction', [base58(txBytes())])) });
+      assert.equal(JSON.parse(thrown.text).error.code, RPC_SEND_REFUSED);
+      assert.equal(lines.length, 1);
+      for (const text of [read.text, refused.text, thrown.text, ...lines]) {
+        for (const value of values) assert.ok(!text.includes(value), 'Basic credentials escaped the checkpoint');
+      }
+      assert.equal(upstream.requests.length, 1, 'refusals were never forwarded');
     } finally {
       await cp.close();
       await upstream.close();

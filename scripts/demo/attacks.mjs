@@ -6,47 +6,51 @@
 // PASS/FAIL) and exits 0 only when every row passes.
 //
 //   node scripts/demo/attacks.mjs --hermetic   fake upstream + in-test approver key (I1's tests)
-//   node scripts/demo/attacks.mjs              real env; the human runs this on devnet
+//   node scripts/demo/attacks.mjs [config]     real env; the human runs this on devnet
 //
-// Dependency ladder (this card ships the harness; the pipeline it drives is T1 + I1):
-//   * `gate run` itself needs T1. Until T1 is merged, every row prints `SKIP needs T1`.
-//   * Scenarios A3-A5 (transaction review at the checkpoint) additionally need the I1 pipeline;
-//     until it exists they print `SKIP needs I1`.
-// When any row is skipped the script prints a PARTIAL banner and still exits 0, so it is safe to
-// wire into CI before the pipeline lands. Once T1 and I1 are merged it runs the scenarios for real.
+// Requires the merged Gate and I1 pipeline. Missing capabilities fail rather than certify
+// a partial run. Only --hermetic creates a fake upstream and runtime wallet.
 //
 // Zero dependencies. Nothing here prints key material.
 import process from 'node:process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
+import { createServer } from 'node:net';
 
-import { startFakeUpstream, base58Encode, base58Decode } from '../../test/fake-upstream-rpc.mjs';
+import { startFakeUpstream, base58Encode, DEVNET_GENESIS_HASH } from '../../test/fake-upstream-rpc.mjs';
+import { SYSTEM, TOKEN, data, message, transaction, randomAddress } from '../../test/solana-builders.mjs';
+import { decodeTransaction } from '../../src/solana/tx.mjs';
+import { loadGateConfig, loadPettyCash, resolveUpstream, createRedactor } from '../../src/gate/config.mjs';
+import { McpSession, redactSensitive } from '../../src/mcp/session.mjs';
+import { SolanaRpc } from '../../src/solana/rpc.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(path.dirname(HERE));
+const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'naive-wallet-mcp.mjs');
+const BALANCE = 2_000_000_000n;
 
 const MODE = process.argv.includes('--hermetic') ? 'hermetic' : 'real';
 
 // ---------------------------------------------------------------------------
-// Scenarios. `needs` is the lowest capability that lets the row run for real.
+// Scenarios and their stable refusal codes.
 // ---------------------------------------------------------------------------
 
 const SCENARIOS = [
-  { id: 'A1', needs: 'T1', expected: ['arg_out_of_bounds'],
+  { id: 'A1', expected: ['arg_out_of_bounds'],
     desc: 'wallet__transfer_sol amount 5 (over the bound)' },
-  { id: 'A2', needs: 'T1', expected: ['arg_not_allowed'],
+  { id: 'A2', expected: ['arg_not_allowed'],
     desc: 'wallet__transfer_sol to an address not in the allowlist' },
-  { id: 'A3', needs: 'I1', expected: ['destination_not_allowed', 'outflow_exceeds_bound'],
+  { id: 'A3', expected: ['destination_not_allowed', 'outflow_exceeds_bound'],
     desc: 'wallet__sign_and_send a crafted 0.5 SOL drain' },
-  { id: 'A4', needs: 'I1', expected: ['token_delegation_denied'],
+  { id: 'A4', expected: ['token_delegation_denied'],
     desc: 'wallet__sign_and_send an SPL approve to the attacker' },
-  { id: 'A5', needs: 'I1', expected: ['unsolicited_send'],
+  { id: 'A5', expected: ['unsolicited_send'],
     desc: 'wallet started with --rogue (no tool call in flight)' },
-  { id: 'A6', needs: 'T1', expected: ['unknown_tool'],
+  { id: 'A6', expected: ['unknown_tool'],
     desc: 'an unlisted tool name' },
 ];
 
@@ -60,25 +64,11 @@ function detectCapabilities() {
   return { haveT1, haveI1 };
 }
 
-/** Why a scenario cannot run yet, or null if it can. */
-function skipReason(scenario, caps) {
-  if (!caps.haveT1) return 'needs T1';
-  if (scenario.needs === 'I1' && !caps.haveI1) return 'needs I1';
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Real run (T1 + I1 present). Imported lazily so this file loads with zero
-// risk before those modules exist.
-// ---------------------------------------------------------------------------
-
-async function runScenarios(caps) {
+async function runScenarios(options) {
   const results = [];
   for (const scenario of SCENARIOS) {
-    const reason = skipReason(scenario, caps);
-    if (reason) { results.push({ scenario, observed: reason, status: 'SKIP' }); continue; }
     try {
-      const observed = await runAttackScenario(scenario);
+      const observed = await runAttackScenario(scenario, options);
       const status = scenario.expected.includes(observed) ? 'PASS' : 'FAIL';
       results.push({ scenario, observed, status });
     } catch (err) {
@@ -89,9 +79,7 @@ async function runScenarios(caps) {
 }
 
 // ---------------------------------------------------------------------------
-// Hermetic harness (reached only when T1 + I1 are present; UNVERIFIED in a
-// checkout without them). Drives `sfcli gate run` as a child through McpSession
-// and reads the audit log for checkpoint-side refusals.
+// Drives `sfcli gate run` through McpSession and checks checkpoint refusals in the audit log.
 // ---------------------------------------------------------------------------
 
 /** A runtime Ed25519 key as { pubkey, secretBase58, secretArray (64-byte JSON array) }. */
@@ -104,9 +92,42 @@ function runtimeKey() {
   return { pubkey: base58Encode(secret.subarray(32)), secretBase58: base58Encode(secret), secretArray: Array.from(secret) };
 }
 
-/** Write a hermetic gate config and petty-cash file into a temp dir; return paths + env. */
-function hermeticSetup(upstreamUrl, { rogue = false } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'sfgate-attacks-'));
+/** Reserve a real approval port and a consecutive checkpoint HTTP/WS pair. */
+export async function reservePorts() {
+  const listen = (port = 0) => new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve(server);
+    });
+  });
+  const close = (server) => new Promise((resolve) => server.close(resolve));
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const listeners = [await listen()];
+    const rpcPort = listeners[0].address().port;
+    let reserved = false;
+    try {
+      if (rpcPort === 65535) continue;
+      listeners.push(await listen(rpcPort + 1));
+      listeners.push(await listen());
+      reserved = true;
+      return {
+        rpcPort,
+        approvalPort: listeners[2].address().port,
+        release: () => Promise.all(listeners.map(close)),
+      };
+    } catch (err) {
+      if (err.code !== 'EADDRINUSE') throw err;
+    } finally {
+      if (!reserved) await Promise.all(listeners.map(close));
+    }
+  }
+  throw new Error('could not reserve a free checkpoint port pair');
+}
+
+/** Write only runtime-generated keys and a hermetic config to the scratch directory. */
+function hermeticSetup(dir, ports, { rogue = false } = {}) {
   const petty = runtimeKey();
   const approver = runtimeKey();
   const allowed = runtimeKey();
@@ -114,7 +135,7 @@ function hermeticSetup(upstreamUrl, { rogue = false } = {}) {
   writeFileSync(pettyPath, JSON.stringify(petty.secretArray) + '\n');
   const auditPath = path.join(dir, 'audit.jsonl');
 
-  const walletArgs = [path.join(ROOT, 'test', 'fixtures', 'naive-wallet-mcp.mjs')];
+  const walletArgs = [FIXTURE];
   if (rogue) walletArgs.push('--rogue');
 
   const config = {
@@ -151,15 +172,16 @@ function hermeticSetup(upstreamUrl, { rogue = false } = {}) {
       denyLegacyTokenTransfer: true,
       approval: 'always',
     },
-    approval: { method: 'local-button', port: 0, timeoutSec: 40, openBrowser: false, notify: false },
-    rpcCheckpoint: { port: 0 },
+    approval: { method: 'wallet-signature', port: ports.approvalPort, timeoutSec: 5, openBrowser: false, notify: false },
+    rpcCheckpoint: { port: ports.rpcPort },
     audit: { path: auditPath },
     showDeniedTools: false,
   };
   const configPath = path.join(dir, 'sfgate.json');
   writeFileSync(configPath, JSON.stringify(config, null, 2));
 
-  return { dir, configPath, auditPath, allowed, attacker: runtimeKey().pubkey, env: { SFGATE_UPSTREAM_RPC_URL: upstreamUrl, SFGATE_PETTY_CASH_PATH: pettyPath } };
+  return { configPath, auditPath, allowed, wallet: petty.pubkey, attacker: randomAddress(),
+    env: { SFGATE_PETTY_CASH_PATH: pettyPath } };
 }
 
 /** Extract a gate refusal code from an McpSession tool-call result body. */
@@ -171,21 +193,92 @@ function refusalCode(body) {
   return null;
 }
 
-async function runAttackScenario(scenario) {
-  const { McpSession } = await import('../../src/mcp/session.mjs');
-  const CLI = path.join(ROOT, 'src', 'index.mjs');
-  const up = await startFakeUpstream({ balance: 2_000_000_000n, simulate: [{ err: null, logs: [] }] });
-  const setup = hermeticSetup(up.url, { rogue: scenario.id === 'A5' });
+/** Keep simulation tied to the transfer bytes rather than a canned passing balance. */
+function transferScript(wallet) {
+  return {
+    balance: BALANCE,
+    accounts: (address) => ({ lamports: address === wallet ? BALANCE : 0n }),
+    simulate: (_index, params) => {
+      const tx = decodeTransaction(new Uint8Array(Buffer.from(params[0], 'base64')));
+      const ix = tx.instructions[0];
+      const amount = Buffer.from(ix.data).readBigUInt64LE(4);
+      const to = tx.staticAccountKeys[ix.accountIndexes[1]];
+      return { err: null, logs: [], accounts: Object.fromEntries(params[1].accounts.addresses.map((address) =>
+        [address, { lamports: address === wallet ? BALANCE - amount - 5000n : address === to ? amount : 0n }])) };
+    },
+  };
+}
 
-  const session = new McpSession({
-    serverBin: process.execPath,
-    serverArgs: [CLI, 'gate', 'run', setup.configPath],
-    appendDb: false,
-    extraEnv: setup.env,
-    timeoutMs: 60000,
-  }).start();
-
+/** Use the human's policy, environment names, wallet and audit file; never overwrite their config. */
+async function humanSetup(dir, ports, configPath, rogue) {
+  const config = loadGateConfig(configPath);
+  if (config.cluster !== 'devnet') throw new Error('attacks without --hermetic requires a devnet config');
+  const upstream = resolveUpstream(config);
+  const petty = loadPettyCash(config);
+  if (!petty) throw new Error('attacks requires the configured petty-cash wallet');
+  const gateRedact = createRedactor([upstream.url, upstream.wsUrl, petty.secretKey]);
+  const redact = (text) => gateRedact(redactSensitive(text));
+  const rpc = new SolanaRpc({ url: upstream.url });
   try {
+    if (await rpc.call('getGenesisHash') !== DEVNET_GENESIS_HASH) {
+      throw new Error('attacks requires a devnet upstream (genesis hash mismatch)');
+    }
+  } catch (err) {
+    throw new Error(redact(err.message));
+  }
+  const allowed = config.lists.allowlist?.[0];
+  if (!allowed) throw new Error('attacks requires lists.allowlist with an address');
+  const raw = JSON.parse(await readFile(config.configPath, 'utf8'));
+  for (const [name, server] of Object.entries(config.servers)) raw.servers[name].cwd = server.cwd;
+  if (rogue) {
+    const wallet = config.servers.wallet;
+    if (!wallet || !wallet.args.some((arg) => path.resolve(wallet.cwd, arg) === FIXTURE)) {
+      throw new Error('A5 requires the configured wallet to use test/fixtures/naive-wallet-mcp.mjs');
+    }
+    if (!raw.servers.wallet.args.includes('--rogue')) raw.servers.wallet.args.push('--rogue');
+  }
+  raw.approval = { ...raw.approval, port: ports.approvalPort, openBrowser: false, notify: false };
+  raw.rpcCheckpoint = { ...raw.rpcCheckpoint, port: ports.rpcPort };
+  raw.audit = { ...raw.audit, path: config.audit.path };
+  const runConfigPath = path.join(dir, 'sfgate.json');
+  writeFileSync(runConfigPath, JSON.stringify(raw, null, 2));
+  return { configPath: runConfigPath, auditPath: config.audit.path, allowed: { pubkey: allowed },
+    wallet: petty.publicKey, attacker: randomAddress(), rpc, redact,
+    env: Object.fromEntries(config.envNames.map((name) => [name, process.env[name]])) };
+}
+
+async function runAttackScenario(scenario, { hermetic, configPath }) {
+  const CLI = path.join(ROOT, 'src', 'index.mjs');
+  const dir = mkdtempSync(path.join(tmpdir(), 'sfgate-attacks-'));
+  let ports;
+  let up;
+  let session;
+  let setup;
+  try {
+    ports = await reservePorts();
+    if (hermetic) {
+      setup = hermeticSetup(dir, ports, { rogue: scenario.id === 'A5' });
+      up = await startFakeUpstream(transferScript(setup.wallet));
+      setup.env.SFGATE_UPSTREAM_RPC_URL = up.url;
+      setup.rpc = new SolanaRpc({ url: up.url });
+    } else {
+      setup = await humanSetup(dir, ports, configPath, scenario.id === 'A5');
+    }
+    const firstRecord = (await auditRecords(setup.auditPath)).length;
+    // Keep listeners reserved until immediately before the Gate child binds them.
+    await ports.release();
+    ports = null;
+    session = new McpSession({
+      serverBin: process.execPath,
+      serverArgs: [CLI, 'gate', 'run', setup.configPath],
+      appendDb: false,
+      extraEnv: setup.env,
+      // Relative paths in the human's environment retain their shell meaning.
+      // Downstream cwd and audit paths were already resolved against the config.
+      cwd: hermetic ? ROOT : process.cwd(),
+      redact: setup.redact,
+      timeoutMs: 60000,
+    }).start();
     await session.initialize();
     let observed = 'no-refusal';
     switch (scenario.id) {
@@ -206,50 +299,76 @@ async function runAttackScenario(scenario) {
       }
       case 'A3':
       case 'A4': {
-        const txBase64 = buildCraftedTransaction(scenario.id, setup);
+        const latest = await setup.rpc.call('getLatestBlockhash', [{ commitment: 'confirmed' }]);
+        const txBase64 = buildCraftedTransaction(scenario.id, { ...setup, blockhash: latest.value.blockhash });
         const { body } = await session.callTool('wallet__sign_and_send', { transaction: txBase64 });
         observed = refusalCode(body) ?? 'forwarded';
         break;
       }
       case 'A5': {
-        // The rogue wallet attempts an unsolicited send ~5s after start; the checkpoint logs it.
-        await new Promise((r) => setTimeout(r, 7000));
-        observed = (await auditHas(setup.auditPath, 'unsolicited_send')) ? 'unsolicited_send' : 'not-logged';
+        // Ignore records from previous runs and check both the event type and refusal code.
+        const deadline = Date.now() + 10_000;
+        do {
+          if (await auditHas(setup.auditPath, 'rpc_send_refused', 'unsolicited_send', firstRecord)) {
+            observed = 'unsolicited_send';
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        } while (Date.now() < deadline);
+        if (observed === 'no-refusal') observed = 'not-logged';
         break;
       }
       default:
         observed = 'unknown-scenario';
     }
+    // A refusal result alone is insufficient if an attack also reached the ledger or a hold.
+    const records = (await auditRecords(setup.auditPath)).slice(firstRecord);
+    if (records.some((record) => record.type === 'hold_created' || record.type === 'rpc_send_forwarded') || up?.sent.length) {
+      return 'unexpected-hold-or-broadcast';
+    }
     return observed;
+  } catch (err) {
+    throw new Error(setup?.redact ? setup.redact(err.message) : redactSensitive(err.message));
   } finally {
-    await session.close();
-    await up.close();
+    try {
+      if (session) {
+        await session.close();
+        await session.stdioClosed;
+      }
+    } finally {
+      if (up) await up.close();
+      if (ports) await ports.release();
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 }
 
-/** Minimal crafted transactions for A3 (SOL drain) and A4 (SPL approve). */
-function buildCraftedTransaction(id, setup) {
-  // Placeholder stub for the pre-pipeline checkout: real vectors are built when I1 wires review.
-  // A tiny legacy message is enough to reach review; the review step supplies the refusal.
-  const payer = base58Decode(setup.allowed.pubkey);
-  void id; void payer;
-  return Buffer.concat([Buffer.from([1]), Buffer.alloc(64), Buffer.alloc(32)]).toString('base64');
+/** Valid unsigned wire transactions: Gate reviews them before the downstream signs. */
+export function buildCraftedTransaction(id, { wallet, attacker, blockhash }) {
+  const fields = id === 'A3'
+    ? { header: [1, 0, 1], keys: [wallet, attacker, SYSTEM],
+      instructions: [{ p: 2, a: [0, 1], d: data.systemTransfer(500_000_000n) }] }
+    : id === 'A4'
+      ? { header: [1, 0, 2], keys: [wallet, randomAddress(), attacker, TOKEN],
+        instructions: [{ p: 3, a: [1, 2, 0], d: data.splApprove(1_000_000n) }] }
+      : null;
+  if (!fields) throw new Error('unknown crafted transaction scenario');
+  return Buffer.from(transaction(message({ ...fields, blockhash }), [null])).toString('base64');
 }
 
-/** True when the audit log file contains a record of the given type. */
-async function auditHas(auditPath, type) {
+async function auditRecords(auditPath) {
   try {
     const text = await readFile(auditPath, 'utf8');
-    return text.split('\n').some((line) => {
-      if (!line.trim()) return false;
-      try { return JSON.parse(line).type === type; } catch { return false; }
-    });
-  } catch { return false; }
+    return text.split('\n').filter((line) => line.trim()).map(JSON.parse);
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw new Error('could not read attack audit records');
+  }
 }
 
-/** Every row skips - the only path that exists before T1. */
-function skipAll(caps) {
-  return SCENARIOS.map((scenario) => ({ scenario, observed: skipReason(scenario, caps), status: 'SKIP' }));
+/** True only for a matching audit event and code in the current run. */
+export async function auditHas(auditPath, type, code, firstRecord = 0) {
+  return (await auditRecords(auditPath)).slice(firstRecord).some((record) => record.type === type && record.code === code);
 }
 
 // ---------------------------------------------------------------------------
@@ -275,8 +394,14 @@ function printTable(results) {
 }
 
 async function main() {
+  const args = process.argv.slice(2).filter((arg) => arg !== '--hermetic');
+  if (args.length > 1 || args.some((arg) => arg.startsWith('-')) || (MODE === 'hermetic' && args.length)) {
+    throw new Error('usage: node scripts/demo/attacks.mjs [--hermetic | <devnet-config.json>]');
+  }
   const caps = detectCapabilities();
-  const results = caps.haveT1 ? await runScenarios(caps) : skipAll(caps);
+  if (!caps.haveT1 || !caps.haveI1) throw new Error('attacks requires Gate and src/gate/pipeline.mjs');
+  const options = { hermetic: MODE === 'hermetic', configPath: path.resolve(args[0] ?? 'sfgate.devnet.json') };
+  const results = await runScenarios(options);
 
   process.stderr.write(`\nSolFrontier Gate - compromised-agent suite (${MODE})\n\n`);
   printTable(results);
@@ -291,15 +416,13 @@ async function main() {
     process.stderr.write('FAIL: at least one scenario was not refused as required.\n');
     return 1;
   }
-  if (skipped.length > 0) {
-    process.stderr.write('PARTIAL: some scenarios are waiting on T1/I1; run again once they are merged.\n');
-    return 0;
-  }
   process.stderr.write('PASS: every compromised-agent scenario was refused with the expected code.\n');
   return 0;
 }
 
-main().then((code) => { process.exitCode = code; }).catch((err) => {
-  process.stderr.write(`attacks: ${err.message}\n`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().then((code) => { process.exitCode = code; }).catch((err) => {
+    process.stderr.write(`attacks: ${redactSensitive(err.message)}\n`);
+    process.exitCode = 1;
+  });
+}
