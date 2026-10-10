@@ -1,0 +1,404 @@
+// The loopback RPC checkpoint: the only Solana RPC endpoint a downstream sees.
+//
+// Every downstream receives `http://127.0.0.1:<port>/s/<server>` as its RPC
+// URL (SPEC §5.1, §5.7). Reads go upstream untouched. `sendTransaction` is the
+// one method that moves money, so it stops here: it is decoded and handed to
+// `onSend` (the pipeline: review, hold, human approval), and it goes upstream
+// only if `onSend` resolves to exactly `{ forward: true }`. Every other
+// outcome (a refusal, a throw, a malformed answer, an undecodable
+// transaction, a shut-down checkpoint) is a refusal (I2, I7).
+//
+// Design notes for the parts that are easy to get subtly wrong:
+//
+//  * What goes upstream is JSON.stringify of the request Gate parsed, never
+//    the client's raw bytes. Raw forwarding would open a parser differential:
+//    `{"method":"sendTransaction",…,"method":"getBalance"}` reads as a harmless
+//    getBalance to JSON.parse (last key wins) but as a send to any upstream
+//    parser where the first key wins. Re-serialising means the upstream reads
+//    exactly the request that was checked. For the canonical JSON every
+//    client library emits, the bytes are identical anyway.
+//  * The upstream URL may embed an API key (I4). It never appears in a
+//    response, a log line or a thrown error: upstream failures map to one
+//    fixed message, and every output passes through a redactor built from the
+//    URL itself.
+//  * Loopback only (I11): both listeners bind 127.0.0.1 and refuse a foreign
+//    `Host` (DNS rebinding) or `Origin` (a web page posting to localhost).
+import { createServer } from 'node:http';
+import { redactSensitive } from '../mcp/session.mjs';
+
+/** JSON-RPC error codes this checkpoint emits (SPEC §5.7). */
+export const RPC_SEND_REFUSED = -32099;
+export const RPC_METHOD_DENIED = -32098;
+export const RPC_UPSTREAM_FAILED = -32097;
+
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const SERVER_PATH = /^\/s\/([a-z0-9-]{1,16})$/;
+const PREFIX = 'SolFrontier Gate: ';
+const UPSTREAM_FAILED_MESSAGE = `${PREFIX}upstream RPC unavailable`;
+
+/**
+ * Start the checkpoint: JSON-RPC proxy on `127.0.0.1:port`.
+ *
+ * @param {object}   opts
+ * @param {string}   opts.upstreamUrl    real http(s) RPC URL; may carry an API key, never echoed
+ * @param {number}   opts.port           HTTP port
+ * @param {(bytes: Uint8Array, meta: object) => Promise<object>} opts.onSend
+ *        decides each sendTransaction; see the module header
+ * @param {string[]} [opts.deniedMethods] refused with -32098
+ * @param {number}   [opts.upstreamTimeoutMs] per upstream request
+ * @param {(line: string) => void} [opts.logger] diagnostics (already redacted); never stdout
+ * @returns {Promise<{ url: string, close: () => Promise<void> }>}
+ */
+export async function startRpcCheckpoint({
+  upstreamUrl,
+  port,
+  onSend,
+  deniedMethods = ['sendBundle'],
+  upstreamTimeoutMs = 30000,
+  logger = () => {},
+} = {}) {
+  if (typeof onSend !== 'function') throw new TypeError('rpc checkpoint: onSend must be a function');
+  // No value is echoed in these messages: a caller that swapped two arguments
+  // would otherwise print its upstream URL.
+  if (!Number.isInteger(port) || port < 1 || port > 65534) {
+    throw new RangeError('rpc checkpoint: port must be an integer in 1..65534 (the WebSocket tunnel takes port + 1)');
+  }
+  if (!Array.isArray(deniedMethods) || deniedMethods.some((m) => typeof m !== 'string')) {
+    throw new TypeError('rpc checkpoint: deniedMethods must be an array of method names');
+  }
+  const upstream = parseUrl(upstreamUrl, ['http:', 'https:'], 'upstreamUrl');
+  const denied = new Set(deniedMethods);
+
+  const scrubUpstream = buildRedactor([upstreamUrl, upstream.href]);
+  const scrubOut = (text) => redactSensitive(scrubUpstream(text));
+  const log = (line) => {
+    try { logger(scrubOut(line)); } catch { /* a broken logger must not break the proxy */ }
+  };
+
+  let closed = false;
+  const lifetime = new AbortController();
+
+  const http = createServer((req, res) => {
+    handleHttp(req, res).catch((err) => {
+      log(`rpc checkpoint: request failed: ${err?.message ?? err}`);
+      res.destroy();
+    });
+  });
+
+  async function handleHttp(req, res) {
+    if (!hostAllowed(req, port) || !originAllowed(req, port)) return sendText(res, 403, 'forbidden');
+    const pathname = req.url.split('?')[0];
+    if (req.method === 'GET' && pathname === '/health') return sendText(res, 200, 'ok');
+    let server = null;
+    if (pathname !== '/') {
+      const match = SERVER_PATH.exec(pathname);
+      if (!match) return sendText(res, 404, 'not found');
+      server = match[1];
+    }
+    if (req.method !== 'POST') return sendText(res, 405, 'method not allowed', { allow: 'POST' });
+
+    const body = await readBody(req);
+    if (body === null) {
+      return sendJson(res, 413, generated(rpcError(null, -32600, `${PREFIX}request body exceeds 2 MB`)));
+    }
+    let payload;
+    try {
+      payload = JSON.parse(body.toString('utf8'));
+    } catch {
+      return sendJson(res, 200, generated(rpcError(null, -32700, `${PREFIX}parse error`)));
+    }
+
+    // Aborts when the client hangs up or the checkpoint closes; handed to
+    // onSend so a hold nobody is waiting for can be cancelled (I7).
+    const abort = new AbortController();
+    const onLifetimeAbort = () => abort.abort();
+    if (lifetime.signal.aborted) abort.abort();
+    else lifetime.signal.addEventListener('abort', onLifetimeAbort, { once: true });
+    res.on('close', () => {
+      lifetime.signal.removeEventListener('abort', onLifetimeAbort);
+      if (!res.writableFinished) abort.abort();
+    });
+    const ctx = { server, signal: abort.signal };
+
+    const text = Array.isArray(payload) ? await answerBatch(payload, ctx) : await answerCall(payload, ctx);
+    return sendJson(res, 200, text);
+  }
+
+  function classify(call) {
+    if (!isPlainObject(call) || typeof call.method !== 'string') return 'invalid';
+    if (call.method === 'sendTransaction') return 'send';
+    // I1: no write method but sendTransaction. Beyond the configured list,
+    // anything spelled like a send (`SendTransaction`, `sendRawTransaction`,
+    // a provider's `sendBundle` variant) is refused rather than trusted to be
+    // a read. No standard read method starts with "send".
+    if (denied.has(call.method) || /^\s*send/i.test(call.method)) return 'denied';
+    return 'read';
+  }
+
+  /** One JSON-RPC call → the JSON text of its response. */
+  async function answerCall(call, ctx) {
+    const id = idOf(call);
+    switch (classify(call)) {
+      case 'invalid':
+        return generated(rpcError(id, -32600, `${PREFIX}invalid request`));
+      case 'denied':
+        return generated(rpcError(id, RPC_METHOD_DENIED, `${PREFIX}method ${JSON.stringify(call.method)} is not allowed`));
+      case 'send':
+        return answerSend(call, ctx);
+      default: {
+        const up = await postUpstream(JSON.stringify(call));
+        return up.ok ? up.text : upstreamFailure(id, up);
+      }
+    }
+  }
+
+  async function answerBatch(calls, ctx) {
+    if (calls.length === 0) return generated(rpcError(null, -32600, `${PREFIX}empty batch`));
+    // A batch of plain reads goes up as one request and comes back verbatim.
+    if (calls.every((c) => classify(c) === 'read')) {
+      const up = await postUpstream(JSON.stringify(calls));
+      if (up.ok) return up.text;
+      return `[${calls.map((c) => upstreamFailure(idOf(c), up)).join(',')}]`;
+    }
+    // Otherwise one call at a time, in order: sends must be sequential, and a
+    // read is not worth a second code path.
+    const parts = [];
+    for (const call of calls) parts.push(await answerCall(call, ctx));
+    return `[${parts.join(',')}]`;
+  }
+
+  async function answerSend(call) {
+    // Fail closed until the decoding path exists.
+    return generated(rpcError(idOf(call), RPC_SEND_REFUSED, `${PREFIX}sendTransaction is not supported yet`));
+  }
+
+  function upstreamFailure(id, up) {
+    log(`rpc checkpoint: upstream ${up.reason}${up.status ? ` (HTTP ${up.status})` : ''}`);
+    const data = { code: 'rpc_unavailable', reason: up.reason };
+    if (up.status) data.status = up.status;
+    return generated(rpcError(id, RPC_UPSTREAM_FAILED, UPSTREAM_FAILED_MESSAGE, data));
+  }
+
+  /**
+   * POST a JSON text upstream. Resolves `{ ok: true, text }` with the body
+   * as received (redacted only if it echoes the URL) or `{ ok: false, reason }`.
+   * Never throws, never reports the error itself: an undici error can carry
+   * the address it failed to reach.
+   */
+  async function postUpstream(bodyText) {
+    if (closed) return { ok: false, reason: 'closed' };
+    const abort = new AbortController();
+    const onLifetimeAbort = () => abort.abort();
+    lifetime.signal.addEventListener('abort', onLifetimeAbort, { once: true });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; abort.abort(); }, upstreamTimeoutMs);
+    try {
+      let response;
+      try {
+        response = await fetch(upstream.href, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: bodyText,
+          // A redirect is a failure, not an instruction: following it would
+          // post a transaction to a host nobody configured.
+          redirect: 'manual',
+          signal: abort.signal,
+        });
+      } catch {
+        return { ok: false, reason: timedOut ? 'timeout' : 'network' };
+      }
+      if (response.status < 200 || response.status > 299) {
+        response.body?.cancel().catch(() => {});
+        return { ok: false, reason: 'http', status: response.status };
+      }
+      let text;
+      try {
+        text = await response.text();
+      } catch {
+        return { ok: false, reason: timedOut ? 'timeout' : 'network' };
+      }
+      try {
+        JSON.parse(text);
+      } catch {
+        return { ok: false, reason: 'non_json' };
+      }
+      return { ok: true, text: scrubUpstream(text) };
+    } finally {
+      clearTimeout(timer);
+      lifetime.signal.removeEventListener('abort', onLifetimeAbort);
+    }
+  }
+
+  /** Serialise a response Gate itself wrote, then redact it (I4). */
+  function generated(obj) {
+    let text;
+    try {
+      text = JSON.stringify(obj);
+    } catch {
+      // `data` from a caller may hold a BigInt or a cycle; drop it, keep the refusal.
+      const { data, ...error } = obj.error;
+      text = JSON.stringify({ ...obj, error });
+    }
+    return scrubOut(text);
+  }
+
+  try {
+    await listen(http, port);
+  } catch (err) {
+    throw bindError(err, port);
+  }
+
+  let closing = null;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close() {
+      if (closing) return closing;
+      closed = true;
+      lifetime.abort();
+      closing = closeServer(http);
+      return closing;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// helpers (pure, or close to it)
+
+function parseUrl(value, protocols, label) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    // Not `err.message`/`cause`: Node's ERR_INVALID_URL carries the input.
+    throw new TypeError(`rpc checkpoint: ${label} is not a valid URL`);
+  }
+  if (!protocols.includes(url.protocol)) {
+    throw new TypeError(`rpc checkpoint: ${label} must use ${protocols.join(' or ')}`);
+  }
+  return url;
+}
+
+/**
+ * Text → text with every fragment of the given URLs that could carry a
+ * credential replaced. Covers the whole URL in its spellings, and the parts
+ * providers put keys in: query string and its values, path, userinfo.
+ */
+export function buildRedactor(urls) {
+  const fragments = new Set();
+  for (const raw of urls) {
+    if (typeof raw !== 'string' || !raw) continue;
+    fragments.add(raw);
+    let url;
+    try { url = new URL(raw); } catch { continue; }
+    fragments.add(url.href);
+    fragments.add(url.href.replace(/\/$/, ''));
+    fragments.add(`${url.host}${url.pathname}${url.search}`);
+    if (url.search.length > 1) fragments.add(url.search.slice(1));
+    for (const value of url.searchParams.values()) fragments.add(value);
+    if (url.pathname.length > 1) fragments.add(url.pathname);
+    for (const segment of url.pathname.split('/')) fragments.add(segment);
+    fragments.add(url.username);
+    fragments.add(url.password);
+  }
+  // Longest first, so a whole URL is replaced before its parts. Short
+  // fragments are skipped: redacting "v2" or "rpc" would mangle honest text.
+  const list = [...fragments].filter((f) => f.length >= 8).sort((a, b) => b.length - a.length);
+  return (text) => {
+    let out = String(text ?? '');
+    for (const f of list) if (out.includes(f)) out = out.split(f).join('<upstream-redacted>');
+    return out;
+  };
+}
+
+function hostAllowed(req, port) {
+  // Exactly one Host header naming this listener. Anything else is a request
+  // that reached 127.0.0.1 under someone else's name (DNS rebinding).
+  let count = 0;
+  for (let i = 0; i < req.rawHeaders.length; i += 2) if (req.rawHeaders[i].toLowerCase() === 'host') count += 1;
+  if (count !== 1) return false;
+  const host = String(req.headers.host).toLowerCase();
+  return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+}
+
+function originAllowed(req, port) {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true; // non-browser clients send none
+  const o = String(origin).toLowerCase();
+  return o === `http://127.0.0.1:${port}` || o === `http://localhost:${port}`;
+}
+
+/** The request body, or null if it exceeds the limit (the rest is drained). */
+async function readBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size <= MAX_BODY_BYTES) chunks.push(chunk);
+  }
+  return size > MAX_BODY_BYTES ? null : Buffer.concat(chunks);
+}
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function idOf(call) {
+  return isPlainObject(call) && call.id !== undefined ? call.id : null;
+}
+
+function rpcError(id, code, message, data) {
+  const error = { code, message };
+  if (data !== undefined) error.data = data;
+  return { jsonrpc: '2.0', id, error };
+}
+
+function sendJson(res, status, text) {
+  if (res.destroyed || res.writableEnded) return;
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(text),
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
+  res.end(text);
+}
+
+function sendText(res, status, text, headers = {}) {
+  if (res.destroyed || res.writableEnded) return;
+  res.writeHead(status, {
+    'content-type': 'text/plain; charset=utf-8',
+    'content-length': Buffer.byteLength(text),
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+    ...headers,
+  });
+  res.end(text);
+}
+
+function listen(server, port) {
+  return new Promise((resolve, reject) => {
+    const onError = (err) => { server.off('listening', onListening); reject(err); };
+    const onListening = () => { server.off('error', onError); resolve(); };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen({ port, host: '127.0.0.1' });
+  });
+}
+
+function bindError(err, port) {
+  // `code` stays machine-readable (callers retry on EADDRINUSE; gate run
+  // exits 2 naming the port).
+  const e = new Error(`rpc checkpoint cannot listen on 127.0.0.1:${port}: ${err?.code ?? 'listen failed'}`);
+  e.code = err?.code;
+  e.port = port;
+  return e;
+}
+
+function closeServer(server) {
+  return new Promise((resolve) => {
+    if (!server.listening) return resolve();
+    server.close(() => resolve());
+    // Keep-alive and in-flight connections would otherwise hold the port.
+    server.closeAllConnections();
+  });
+}
