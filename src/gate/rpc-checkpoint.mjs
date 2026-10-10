@@ -23,7 +23,13 @@
 //    URL itself.
 //  * Loopback only (I11): both listeners bind 127.0.0.1 and refuse a foreign
 //    `Host` (DNS rebinding) or `Origin` (a web page posting to localhost).
+//  * WebSocket subscriptions get a raw byte tunnel on port + 1, because
+//    web3.js derives its ws URL that way and needs it for confirmTransaction.
+//    PubSub cannot send a transaction, so the tunnel parses no frames: it
+//    rewrites the request line and Host, then pipes bytes both ways.
 import { createServer } from 'node:http';
+import net from 'node:net';
+import tls from 'node:tls';
 import { redactSensitive } from '../mcp/session.mjs';
 
 /** JSON-RPC error codes this checkpoint emits (SPEC §5.7). */
@@ -33,16 +39,20 @@ export const RPC_UPSTREAM_FAILED = -32097;
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_TX_CHARS = 4096;
+const TUNNEL_CONNECT_TIMEOUT_MS = 15000;
 const SERVER_PATH = /^\/s\/([a-z0-9-]{1,16})$/;
 const PREFIX = 'SolFrontier Gate: ';
 const UPSTREAM_FAILED_MESSAGE = `${PREFIX}upstream RPC unavailable`;
 
 /**
- * Start the checkpoint: JSON-RPC proxy on `127.0.0.1:port`.
+ * Start the checkpoint: JSON-RPC proxy on `127.0.0.1:port`, WebSocket tunnel
+ * on `127.0.0.1:port + 1`. Rejects (with `code`, e.g. EADDRINUSE, and `port`)
+ * if either cannot bind; nothing is left listening in that case.
  *
  * @param {object}   opts
  * @param {string}   opts.upstreamUrl    real http(s) RPC URL; may carry an API key, never echoed
- * @param {number}   opts.port           HTTP port
+ * @param {string}   [opts.upstreamWsUrl] real ws(s) URL; default derived https→wss, http→ws
+ * @param {number}   opts.port           HTTP port; the tunnel takes port + 1
  * @param {(bytes: Uint8Array, meta: object) => Promise<object>} opts.onSend
  *        decides each sendTransaction. `meta` = `{ encoding, params, requestId,
  *        server, signal }`: `server` is the `/s/<server>` name or null for
@@ -55,10 +65,11 @@ const UPSTREAM_FAILED_MESSAGE = `${PREFIX}upstream RPC unavailable`;
  * @param {string[]} [opts.deniedMethods] refused with -32098
  * @param {number}   [opts.upstreamTimeoutMs] per upstream request
  * @param {(line: string) => void} [opts.logger] diagnostics (already redacted); never stdout
- * @returns {Promise<{ url: string, close: () => Promise<void> }>}
+ * @returns {Promise<{ url: string, wsUrl: string, close: () => Promise<void> }>}
  */
 export async function startRpcCheckpoint({
   upstreamUrl,
+  upstreamWsUrl,
   port,
   onSend,
   deniedMethods = ['sendBundle'],
@@ -75,9 +86,12 @@ export async function startRpcCheckpoint({
     throw new TypeError('rpc checkpoint: deniedMethods must be an array of method names');
   }
   const upstream = parseUrl(upstreamUrl, ['http:', 'https:'], 'upstreamUrl');
+  // 'http://…' → 'ws://…', 'https://…' → 'wss://…'
+  const upstreamWs = parseUrl(upstreamWsUrl ?? `ws${upstream.href.slice(4)}`, ['ws:', 'wss:'], 'upstreamWsUrl');
   const denied = new Set(deniedMethods);
+  const wsPort = port + 1;
 
-  const scrubUpstream = buildRedactor([upstreamUrl, upstream.href]);
+  const scrubUpstream = buildRedactor([upstreamUrl, upstream.href, upstreamWsUrl, upstreamWs.href]);
   const scrubOut = (text) => redactSensitive(scrubUpstream(text));
   const log = (line) => {
     try { logger(scrubOut(line)); } catch { /* a broken logger must not break the proxy */ }
@@ -279,20 +293,100 @@ export async function startRpcCheckpoint({
     return scrubOut(text);
   }
 
+  // --- WebSocket tunnel ---------------------------------------------------
+
+  // Upgraded sockets leave the HTTP server's bookkeeping, so close() needs
+  // its own list to free the port.
+  const tunnelSockets = new Set();
+  const track = (socket) => {
+    tunnelSockets.add(socket);
+    socket.once('close', () => tunnelSockets.delete(socket));
+  };
+
+  const tunnel = createServer((req, res) => sendText(res, 426, 'upgrade required', { upgrade: 'websocket' }));
+  tunnel.on('upgrade', (req, client, head) => {
+    track(client);
+    client.on('error', () => {});
+    if (closed) return refuseUpgrade(client, 503, 'Service Unavailable');
+    if (!hostAllowed(req, wsPort) || !originAllowed(req, wsPort)) return refuseUpgrade(client, 403, 'Forbidden');
+    const pathname = req.url.split('?')[0];
+    if (pathname !== '/' && !SERVER_PATH.test(pathname)) return refuseUpgrade(client, 404, 'Not Found');
+    if (req.method !== 'GET' || String(req.headers.upgrade ?? '').toLowerCase() !== 'websocket') {
+      return refuseUpgrade(client, 400, 'Bad Request');
+    }
+    openTunnel(req, client, head);
+  });
+
+  function openTunnel(req, client, head) {
+    const secure = upstreamWs.protocol === 'wss:';
+    const host = upstreamWs.hostname.replace(/^\[(.*)\]$/, '$1');
+    const upstreamPort = Number(upstreamWs.port) || (secure ? 443 : 80);
+    const upstreamSocket = secure
+      ? tls.connect({ host, port: upstreamPort, servername: net.isIP(host) ? undefined : host })
+      : net.connect({ host, port: upstreamPort });
+    track(upstreamSocket);
+    let connected = false;
+    const teardown = () => {
+      client.destroy();
+      upstreamSocket.destroy();
+    };
+    upstreamSocket.setTimeout(TUNNEL_CONNECT_TIMEOUT_MS, () => {
+      log('rpc checkpoint: tunnel upstream connect timed out');
+      upstreamSocket.destroy();
+    });
+    upstreamSocket.once(secure ? 'secureConnect' : 'connect', () => {
+      connected = true;
+      upstreamSocket.setTimeout(0);
+      upstreamSocket.write(upgradeRequest(req));
+      if (head?.length) upstreamSocket.write(head);
+      upstreamSocket.pipe(client);
+      client.pipe(upstreamSocket);
+    });
+    // The error itself is not logged: it can name the host it failed to reach.
+    upstreamSocket.on('error', (err) => log(`rpc checkpoint: tunnel upstream failed (${err?.code ?? 'error'})`));
+    upstreamSocket.on('close', () => {
+      if (connected) teardown();
+      else refuseUpgrade(client, 502, 'Bad Gateway');
+    });
+    client.on('close', teardown);
+  }
+
+  /** The client's upgrade request, re-addressed to the upstream's path and Host. */
+  function upgradeRequest(req) {
+    const lines = [`GET ${upstreamWs.pathname}${upstreamWs.search} HTTP/1.1`, `Host: ${upstreamWs.host}`];
+    for (let i = 0; i < req.rawHeaders.length; i += 2) {
+      // Host is rewritten; an Origin, if any, was ours and means nothing upstream.
+      if (/^(host|origin)$/i.test(req.rawHeaders[i])) continue;
+      lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
+    }
+    return `${lines.join('\r\n')}\r\n\r\n`;
+  }
+
+  // --- lifecycle -------------------------------------------------------------
+
   try {
     await listen(http, port);
   } catch (err) {
     throw bindError(err, port);
   }
+  try {
+    await listen(tunnel, wsPort);
+  } catch (err) {
+    await closeServer(http);
+    throw bindError(err, wsPort);
+  }
 
   let closing = null;
   return {
     url: `http://127.0.0.1:${port}`,
+    wsUrl: `ws://127.0.0.1:${wsPort}`,
+    /** Stop both listeners, drop every connection and tunnel; nothing is forwarded after this. */
     close() {
       if (closing) return closing;
       closed = true;
       lifetime.abort();
-      closing = closeServer(http);
+      for (const socket of tunnelSockets) socket.destroy();
+      closing = Promise.all([closeServer(http), closeServer(tunnel)]).then(() => {});
       return closing;
     },
   };
@@ -488,6 +582,13 @@ function listen(server, port) {
     server.once('listening', onListening);
     server.listen({ port, host: '127.0.0.1' });
   });
+}
+
+function refuseUpgrade(socket, status, reason) {
+  if (socket.destroyed || socket.writableEnded) return;
+  socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+  // Do not wait forever for a client that never closes its side.
+  socket.setTimeout(2000, () => socket.destroy());
 }
 
 function bindError(err, port) {

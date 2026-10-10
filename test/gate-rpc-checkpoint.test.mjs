@@ -710,3 +710,279 @@ describe('batches', () => {
     }
   });
 });
+
+// --- WebSocket tunnel --------------------------------------------------------
+
+const WS_UPSTREAM_PATH = '/v2/ws-marker-path?api-key=ws-marker-token';
+
+/**
+ * A fake WebSocket upstream: reads the upgrade request, answers 101, then
+ * echoes every byte. It parses no frames, and neither does the tunnel.
+ */
+async function fakeWsUpstream() {
+  const heads = [];
+  const sockets = [];
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    socket.on('error', () => {});
+    let buffered = Buffer.alloc(0);
+    let upgraded = false;
+    socket.on('data', (chunk) => {
+      if (upgraded) return void socket.write(chunk);
+      buffered = Buffer.concat([buffered, chunk]);
+      const end = buffered.indexOf('\r\n\r\n');
+      if (end === -1) return;
+      heads.push(buffered.subarray(0, end).toString('latin1'));
+      upgraded = true;
+      socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+        + 'Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n');
+      const rest = buffered.subarray(end + 4);
+      if (rest.length) socket.write(rest);
+    });
+  });
+  const port = await listenOn(server);
+  return { port, url: `ws://127.0.0.1:${port}${WS_UPSTREAM_PATH}`, heads, sockets, close: () => closeQuietly(server) };
+}
+
+/** An HTTP upgrade request to the tunnel; resolves on 101 or any other answer. */
+function upgrade(port, { path = '/s/wallet', headers = {} } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = request({
+      host: '127.0.0.1',
+      port,
+      path,
+      agent: false,
+      headers: {
+        connection: 'Upgrade',
+        upgrade: 'websocket',
+        'sec-websocket-version': '13',
+        'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        ...headers,
+      },
+    });
+    req.on('upgrade', (res, socket) => resolve({ status: res.statusCode, socket }));
+    req.on('response', (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/** Write bytes, collect exactly that many back. */
+function roundTrip(socket, text) {
+  return new Promise((resolve) => {
+    let got = '';
+    const onData = (chunk) => {
+      got += chunk.toString('utf8');
+      if (got.length >= text.length) {
+        socket.off('data', onData);
+        resolve(got);
+      }
+    };
+    socket.on('data', onData);
+    socket.write(text);
+  });
+}
+
+const closed = (socket) => new Promise((resolve) => {
+  if (socket.destroyed) resolve();
+  else socket.once('close', resolve);
+});
+
+async function tunnelHarness(extra = {}) {
+  const ws = await fakeWsUpstream();
+  const upstream = await fakeUpstream();
+  const cp = await startCheckpoint({ upstreamUrl: upstream.url, upstreamWsUrl: ws.url, onSend: forward, ...extra });
+  return {
+    ws,
+    cp,
+    wsPort: cp.port + 1,
+    close: async () => { await cp.close(); await ws.close(); await upstream.close(); },
+  };
+}
+
+describe('WebSocket tunnel on port + 1', () => {
+  test('bytes written by the client come back through the tunnel', async () => {
+    const h = await tunnelHarness();
+    try {
+      assert.equal(h.cp.wsUrl, `ws://127.0.0.1:${h.wsPort}`);
+      for (const path of ['/s/wallet', '/']) {
+        const up = await upgrade(h.wsPort, { path });
+        assert.equal(up.status, 101, path);
+        const payload = `ping-through-the-tunnel ${path} ${'x'.repeat(5000)}`;
+        assert.equal(await roundTrip(up.socket, payload), payload);
+        up.socket.destroy();
+      }
+      // The request was re-addressed: upstream path and query, upstream Host,
+      // client's WebSocket headers kept, no Origin.
+      assert.equal(h.ws.heads.length, 2);
+      for (const head of h.ws.heads) {
+        const [line, ...headers] = head.split('\r\n');
+        assert.equal(line, `GET ${WS_UPSTREAM_PATH} HTTP/1.1`);
+        const lower = headers.map((x) => x.toLowerCase());
+        assert.ok(lower.includes(`host: 127.0.0.1:${h.ws.port}`), head);
+        assert.ok(lower.includes('sec-websocket-key: dghlihnhbxbszsbub25jzq=='), head);
+        assert.ok(lower.includes('upgrade: websocket'), head);
+        assert.equal(lower.filter((x) => x.startsWith('host:')).length, 1);
+        assert.ok(!lower.some((x) => x.startsWith('origin:')), head);
+      }
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('when either side closes, both are torn down', async () => {
+    const h = await tunnelHarness();
+    try {
+      const a = await upgrade(h.wsPort);
+      await roundTrip(a.socket, 'hello');
+      a.socket.destroy();
+      await closed(h.ws.sockets[0]);
+
+      const b = await upgrade(h.wsPort);
+      await roundTrip(b.socket, 'hello');
+      h.ws.sockets[1].destroy();
+      await closed(b.socket);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('wrong Host, foreign Origin, bad path: refused before any upstream connection', async () => {
+    const h = await tunnelHarness();
+    try {
+      assert.equal((await upgrade(h.wsPort, { headers: { host: 'evil.example' } })).status, 403);
+      assert.equal((await upgrade(h.wsPort, { headers: { host: `127.0.0.1:${h.cp.port}` } })).status, 403);
+      assert.equal((await upgrade(h.wsPort, { headers: { origin: 'https://evil.example' } })).status, 403);
+      assert.equal((await upgrade(h.wsPort, { path: '/s/BAD' })).status, 404);
+      assert.equal((await upgrade(h.wsPort, { path: '/x' })).status, 404);
+      assert.equal((await upgrade(h.wsPort, { headers: { upgrade: 'h2c' } })).status, 400);
+      assert.equal((await upgrade(h.wsPort, { headers: { host: `localhost:${h.wsPort}`, origin: `http://localhost:${h.wsPort}` } })).status, 101);
+      assert.equal(h.ws.sockets.length, 1);
+      const plain = await send(h.wsPort, { path: '/', method: 'GET' });
+      assert.equal(plain.status, 426);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('upstream WebSocket down ⇒ 502, URL nowhere', async () => {
+    const deadPort = await freePort();
+    const upstream = await fakeUpstream();
+    const lines = [];
+    const wsUrl = `ws://127.0.0.1:${deadPort}${WS_UPSTREAM_PATH}`;
+    const cp = await startCheckpoint({ upstreamUrl: upstream.url, upstreamWsUrl: wsUrl, onSend: forward, logger: (l) => lines.push(l) });
+    try {
+      const res = await upgrade(cp.port + 1);
+      assert.equal(res.status, 502);
+      for (const text of [res.text, ...lines]) {
+        assert.ok(!text.includes('ws-marker'), text);
+        assert.ok(!text.includes(String(deadPort)), text);
+      }
+    } finally {
+      await cp.close();
+      await upstream.close();
+    }
+  });
+
+  test('without upstreamWsUrl the tunnel targets the upstream URL with ws://', async () => {
+    const ws = await fakeWsUpstream();
+    // http://127.0.0.1:<ws port>/… → ws://127.0.0.1:<ws port>/…
+    const cp = await startCheckpoint({ upstreamUrl: `http://127.0.0.1:${ws.port}${WS_UPSTREAM_PATH}`, onSend: forward });
+    try {
+      const up = await upgrade(cp.port + 1);
+      assert.equal(up.status, 101);
+      assert.equal(await roundTrip(up.socket, 'derived'), 'derived');
+      assert.equal(ws.heads[0].split('\r\n')[0], `GET ${WS_UPSTREAM_PATH} HTTP/1.1`);
+      up.socket.destroy();
+    } finally {
+      await cp.close();
+      await ws.close();
+    }
+  });
+});
+
+describe('lifecycle', () => {
+  test('close() frees both ports, even with a live tunnel and a keep-alive connection', async () => {
+    // A port freed by close() could in principle be taken by a parallel test
+    // before the restart; a fresh pair absorbs that race, a real leak fails
+    // every attempt.
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const h = await tunnelHarness();
+      const { port } = h.cp;
+      const up = await upgrade(h.wsPort);
+      await roundTrip(up.socket, 'live');
+      const keepAlive = request({ host: '127.0.0.1', port, path: '/health', method: 'GET', headers: { connection: 'keep-alive' } });
+      await new Promise((resolve) => keepAlive.on('response', (res) => { res.resume(); res.on('end', resolve); }).end());
+
+      await h.cp.close();
+      await closed(up.socket);
+      await closed(h.ws.sockets[0]);
+      await h.close();
+      let again;
+      try {
+        again = await startRpcCheckpoint({ upstreamUrl: 'http://127.0.0.1:9/', port, onSend: forward });
+      } catch (err) {
+        lastError = err;
+        continue;
+      }
+      try {
+        assert.equal(again.url, `http://127.0.0.1:${port}`);
+        assert.equal(again.wsUrl, `ws://127.0.0.1:${port + 1}`);
+        assert.equal((await send(port, { path: '/health', method: 'GET' })).text, 'ok');
+      } finally {
+        await again.close();
+      }
+      return;
+    }
+    throw lastError;
+  });
+
+  test('close() is idempotent', async () => {
+    const h = await tunnelHarness();
+    await Promise.all([h.cp.close(), h.cp.close()]);
+    await h.close();
+  });
+
+  test('if port + 1 is taken, start fails naming it and leaves port free', async () => {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const port = await freePort();
+      if (port > 65534) continue;
+      const blocker = net.createServer();
+      try {
+        await listenOn(blocker, port + 1);
+      } catch {
+        continue;
+      }
+      try {
+        await assert.rejects(startRpcCheckpoint({ upstreamUrl: 'http://127.0.0.1:9/', port, onSend: forward }), (err) => {
+          assert.equal(err.code, 'EADDRINUSE');
+          assert.equal(err.port, port + 1);
+          assert.match(err.message, new RegExp(`127\\.0\\.0\\.1:${port + 1}`));
+          return true;
+        });
+        const probe = net.createServer();
+        await listenOn(probe, port);
+        await closeQuietly(probe);
+      } finally {
+        await closeQuietly(blocker);
+      }
+      return;
+    }
+    throw new Error('could not stage an occupied port + 1');
+  });
+
+  test('bad arguments are refused before anything listens', async () => {
+    const upstreamUrl = 'http://127.0.0.1:9/';
+    await assert.rejects(startRpcCheckpoint({ upstreamUrl, port: 20001 }), TypeError);
+    await assert.rejects(startRpcCheckpoint({ upstreamUrl, port: 0, onSend: forward }), RangeError);
+    await assert.rejects(startRpcCheckpoint({ upstreamUrl, port: 65535, onSend: forward }), RangeError);
+    await assert.rejects(startRpcCheckpoint({ upstreamUrl: 'ftp://127.0.0.1/', port: 20001, onSend: forward }), TypeError);
+    await assert.rejects(startRpcCheckpoint({ upstreamUrl, upstreamWsUrl: 'http://127.0.0.1/', port: 20001, onSend: forward }), TypeError);
+    await assert.rejects(startRpcCheckpoint({ upstreamUrl, port: 20001, onSend: forward, deniedMethods: 'sendBundle' }), TypeError);
+  });
+});
