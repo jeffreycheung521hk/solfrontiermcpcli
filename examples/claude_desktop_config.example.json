@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "solfrontier-gate": {
+      "command": "/ABSOLUTE/PATH/TO/node",
+      "args": [
+        "/ABSOLUTE/PATH/solfrontiermcpcli/src/index.mjs",
+        "gate",
+        "run",
+        "/ABSOLUTE/PATH/solfrontiermcpcli/sfgate.devnet.json"
+      ],
+      "env": {
+        "SFGATE_UPSTREAM_RPC_URL": "https://api.devnet.solana.com",
+        "SFGATE_PETTY_CASH_PATH": "/Users/YOU/.sfgate/petty-cash.json"
+      }
+    }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "_comment": "Mainnet: kukapay/jupiter-mcp behind Gate. Keep the petty-cash balance <= 0.03 SOL. Every swap needs your wallet signature.",
+  "cluster": "mainnet-beta",
+  "upstreamRpcEnv": "SFGATE_UPSTREAM_RPC_URL",
+  "pettyCash": {
+    "pathEnv": "SFGATE_PETTY_CASH_PATH"
+  },
+  "approver": "REPLACE_WITH_YOUR_PHANTOM_APPROVER_ADDRESS",
+  "servers": {
+    "jup": {
+      "command": "node",
+      "args": [
+        "REPLACE_WITH_ABSOLUTE_PATH/jupiter-mcp/index.js"
+      ],
+      "rpcVar": "SOLANA_RPC_URL",
+      "walletVar": "PRIVATE_KEY",
+      "walletFormat": "base58-64",
+      "timeoutMs": 90000
+    }
+  },
+  "lists": {},
+  "tools": {
+    "jup.get-ultra-order": {
+      "mode": "bound",
+      "args": {
+        "inputMint": {
+          "type": "string",
+          "in": [
+            "So11111111111111111111111111111111111111112"
+          ]
+        },
+        "outputMint": {
+          "type": "string",
+          "in": [
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          ]
+        },
+        "amount": {
+          "type": "number-string",
+          "gte": 0,
+          "lte": 0.002
+        },
+        "slippageBps": {
+          "type": "integer",
+          "gte": 1,
+          "lte": 100
+        }
+      }
+    },
+    "jup.execute-ultra-order": {
+      "mode": "bound",
+      "txArg": "transaction",
+      "txArgEncoding": "base64"
+    },
+    "*": "deny"
+  },
+  "tx": {
+    "_comment": "Ultra may route through programs we cannot list in advance, so unknown programs warn (the human sees them) and the outflow caps are the hard bound.",
+    "programs": [
+      "11111111111111111111111111111111",
+      "ComputeBudget111111111111111111111111111111",
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+      "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+    ],
+    "unknownProgram": "warn",
+    "maxOutflow": {
+      "SOL": 0.003,
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 1
+    },
+    "unknownMintOutflow": "deny",
+    "destinations": "any",
+    "denyTokenDelegation": true,
+    "denyLegacyTokenTransfer": true,
+    "approval": "always"
+  },
+  "approval": {
+    "method": "wallet-signature",
+    "port": 8787,
+    "timeoutSec": 40,
+    "openBrowser": true,
+    "notify": true
+  },
+  "rpcCheckpoint": {
+    "port": 18899
+  },
+  "audit": {
+    "path": "./sfgate-audit.mainnet.jsonl"
+  },
+  "showDeniedTools": false
+}

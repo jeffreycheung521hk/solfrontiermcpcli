@@ -1,0 +1,86 @@
+{
+  "_comment": "Devnet demo: the naive wallet fixture behind Gate. Copy to the repo root as sfgate.devnet.json and replace the two REPLACE_ values.",
+  "cluster": "devnet",
+  "upstreamRpcEnv": "SFGATE_UPSTREAM_RPC_URL",
+  "pettyCash": {
+    "pathEnv": "SFGATE_PETTY_CASH_PATH"
+  },
+  "approver": "REPLACE_WITH_YOUR_PHANTOM_APPROVER_ADDRESS",
+  "servers": {
+    "wallet": {
+      "command": "node",
+      "args": [
+        "test/fixtures/naive-wallet-mcp.mjs"
+      ],
+      "rpcVar": "RPC_URL",
+      "walletVar": "PRIVATE_KEY",
+      "walletFormat": "base58-64",
+      "env": {
+        "CLUSTER": "devnet"
+      },
+      "timeoutMs": 90000
+    }
+  },
+  "lists": {
+    "allowlist": [
+      "REPLACE_WITH_AN_ADDRESS_YOU_OWN"
+    ]
+  },
+  "tools": {
+    "wallet.get_balance": "pass",
+    "wallet.token_info": "pass",
+    "wallet.transfer_sol": {
+      "mode": "bound",
+      "args": {
+        "to": {
+          "type": "string",
+          "in": "@allowlist"
+        },
+        "amount": {
+          "type": "number",
+          "gte": 0,
+          "lte": 0.05
+        }
+      }
+    },
+    "wallet.sign_and_send": {
+      "mode": "bound",
+      "txArg": "transaction",
+      "txArgEncoding": "base64"
+    },
+    "*": "deny"
+  },
+  "tx": {
+    "programs": [
+      "11111111111111111111111111111111",
+      "ComputeBudget111111111111111111111111111111",
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+    ],
+    "unknownProgram": "deny",
+    "maxOutflow": {
+      "SOL": 0.05
+    },
+    "unknownMintOutflow": "deny",
+    "destinations": "@allowlist",
+    "denyTokenDelegation": true,
+    "denyLegacyTokenTransfer": true,
+    "approval": "always"
+  },
+  "approval": {
+    "method": "wallet-signature",
+    "port": 8787,
+    "timeoutSec": 40,
+    "openBrowser": true,
+    "notify": true
+  },
+  "rpcCheckpoint": {
+    "port": 18899
+  },
+  "audit": {
+    "path": "./sfgate-audit.devnet.jsonl"
+  },
+  "showDeniedTools": false
+}
