@@ -52,6 +52,24 @@ export function sanitizedChildEnv(source = process.env) {
 }
 
 /**
+ * Drop variables from an env object by exact name (case-insensitive, since
+ * Windows env names are) or RegExp. Gate uses this to hide its own
+ * configuration from the downstreams it spawns (SPEC I5).
+ * @param {Record<string, string>} env
+ * @param {(string|RegExp)[]} rules
+ */
+export function stripChildEnv(env, rules = []) {
+  const out = {};
+  for (const [key, value] of Object.entries(env)) {
+    const hit = rules.some((rule) =>
+      rule instanceof RegExp ? rule.test(key) : String(rule).toUpperCase() === key.toUpperCase(),
+    );
+    if (!hit) out[key] = value;
+  }
+  return out;
+}
+
+/**
  * Remove anything that looks like a secret from text bound for a human.
  *
  * Server logs and protocol frames are attacker-influenced and operator-
@@ -81,10 +99,31 @@ export class McpSession {
   #timeoutMs;
   #onFrame;
 
-  constructor({ serverBin, serverArgs = [], dbPath, timeoutMs = DEFAULTS.timeoutMs, verbose = false, onFrame } = {}) {
+  constructor({
+    serverBin,
+    serverArgs = [],
+    dbPath,
+    timeoutMs = DEFAULTS.timeoutMs,
+    verbose = false,
+    onFrame,
+    appendDb = true,
+    extraEnv = {},
+    stripEnv = [],
+    cwd,
+    redact,
+  } = {}) {
     this.serverBin = serverBin;
     this.serverArgs = serverArgs;
     this.dbPath = dbPath;
+    // Gate drives arbitrary MCP servers that know nothing about `--db`;
+    // the legacy client drives one that requires it. Default = legacy.
+    this.appendDb = appendDb;
+    this.extraEnv = extraEnv;
+    this.stripEnv = stripEnv;
+    this.cwd = cwd;
+    // Extra redaction applied after redactSensitive() at every point where
+    // server output enters this process (Gate's own secrets, SPEC I4).
+    this.redact = typeof redact === 'function' ? redact : (text) => text;
     this.#timeoutMs = timeoutMs;
     this.#verbose = verbose;
     this.#onFrame = onFrame;
@@ -95,13 +134,32 @@ export class McpSession {
     return this.#stderrRing.join('\n');
   }
 
+  /**
+   * The exact environment the child receives: sanitized parent env, minus
+   * `stripEnv`, plus `extraEnv`. Injections come last so that an explicit
+   * value (e.g. Gate's checkpoint URL) always wins over an inherited one.
+   */
+  childEnv(source = process.env) {
+    return { ...stripChildEnv(sanitizedChildEnv(source), this.stripEnv), ...this.extraEnv };
+  }
+
+  #clean(text) {
+    return this.redact(redactSensitive(text));
+  }
+
+  /** `{ code, signal }` once the child has exited, else null. */
+  get exitInfo() {
+    return this.#exitInfo;
+  }
+
   start() {
-    const args = [...this.serverArgs, '--db', this.dbPath];
+    const args = this.appendDb ? [...this.serverArgs, '--db', this.dbPath] : [...this.serverArgs];
     // Array args, never shell:true — paths with spaces need no quoting and
     // nothing can be reinterpreted by a shell.
     this.#child = spawn(this.serverBin, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: sanitizedChildEnv(),
+      env: this.childEnv(),
+      ...(this.cwd ? { cwd: this.cwd } : {}),
     });
 
     this.#child.on('error', (err) => {
@@ -127,7 +185,7 @@ export class McpSession {
         // use -- the ring buffer, the verbose echo, and the tail printed with
         // a transport error -- is safe by construction rather than by each
         // call site remembering.
-        const line = redactSensitive(errBuffer.slice(0, nl).replace(/\r$/, ''));
+        const line = this.#clean(errBuffer.slice(0, nl).replace(/\r$/, ''));
         errBuffer = errBuffer.slice(nl + 1);
         this.#stderrRing.push(line);
         if (this.#stderrRing.length > STDERR_RING_LINES) this.#stderrRing.shift();
@@ -141,10 +199,10 @@ export class McpSession {
 
   #ingest(chunk) {
     for (const line of this.#framer.push(chunk)) {
-      if (this.#verbose) process.stderr.write(`[2m<<[0m ${redactSensitive(line)}\n`);
+      if (this.#verbose) process.stderr.write(`[2m<<[0m ${this.#clean(line)}\n`);
       // Redacted for the same reason as the verbose echo: frames carry tool
       // arguments, and this hook exists to be written somewhere durable.
-      this.#onFrame?.('recv', redactSensitive(line));
+      this.#onFrame?.('recv', this.#clean(line));
 
       let message;
       try {
@@ -158,6 +216,17 @@ export class McpSession {
           }),
         );
         return;
+      }
+      // A server->client request (sampling, roots, elicitation...). This
+      // client offers none of those capabilities, but a server that asks
+      // anyway would otherwise wait forever on an answer that never comes.
+      if (typeof message.method === 'string' && message.id !== undefined && message.id !== null) {
+        try {
+          this.#write({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'method not found' } });
+        } catch {
+          /* stdin already closed: the exit handler reports it */
+        }
+        continue;
       }
       if (message.id !== undefined && this.#pending.has(message.id)) {
         const entry = this.#pending.get(message.id);
@@ -180,8 +249,8 @@ export class McpSession {
 
   #write(payload) {
     const line = JSON.stringify(payload);
-    if (this.#verbose) process.stderr.write(`[2m>>[0m ${redactSensitive(line)}\n`);
-    this.#onFrame?.('send', redactSensitive(line));
+    if (this.#verbose) process.stderr.write(`[2m>>[0m ${this.#clean(line)}\n`);
+    this.#onFrame?.('send', this.#clean(line));
     if (!this.#child?.stdin.writable) {
       throw new TransportError('server stdin is closed', { stderrTail: this.stderrTail });
     }
@@ -278,6 +347,21 @@ export class McpSession {
       body = { raw: text };
     }
     return { isError: response.result?.isError === true, body };
+  }
+
+  /**
+   * Call a tool and return the raw MCP `result` untouched — Gate forwards it
+   * verbatim to the host. A JSON-RPC error still throws (exit 3).
+   */
+  async callToolRaw(name, args, options = {}) {
+    const response = await this.request('tools/call', { name, arguments: args }, options);
+    if (response.error) {
+      throw new TransportError(
+        `tool call rejected: ${response.error.message ?? JSON.stringify(response.error)}`,
+        { tool: name, code: response.error.code },
+      );
+    }
+    return response.result ?? {};
   }
 
   /** EOF first (a well-behaved stdio server exits on it), terminate second. */
