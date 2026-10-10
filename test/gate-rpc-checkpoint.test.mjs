@@ -9,6 +9,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request } from 'node:http';
 import net from 'node:net';
+import { randomBytes } from 'node:crypto';
 
 import {
   startRpcCheckpoint,
@@ -414,14 +415,296 @@ describe('upstream failure (I4: the URL never appears)', () => {
   });
 });
 
-describe('sendTransaction never reaches upstream unless onSend forwards it', () => {
-  test('a refused send is -32099 and upstream receives nothing', async () => {
+// An independent base58 encoder (BigInt, not the module's byte loop), so the
+// two implementations check each other.
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function base58(bytes) {
+  let n = 0n;
+  for (const b of bytes) n = n * 256n + BigInt(b);
+  let out = '';
+  while (n > 0n) {
+    out = B58[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b !== 0) break;
+    out = `1${out}`;
+  }
+  return out;
+}
+
+/** Transaction-shaped test bytes: random, with leading zeros for base58's sake. */
+function txBytes(length = 300) {
+  const bytes = randomBytes(length);
+  bytes[0] = 0;
+  bytes[1] = 0;
+  return new Uint8Array(bytes);
+}
+
+const forward = async () => ({ forward: true });
+
+describe('sendTransaction', () => {
+  test('the test encoder agrees with known base58 vectors', () => {
+    assert.equal(base58(new Uint8Array(32)), '11111111111111111111111111111111');
+    assert.equal(base58(new TextEncoder().encode('Hello World!')), '2NEpo7TZRRrLZSi2U');
+  });
+
+  test('base64 and base58 hand onSend identical bytes', async () => {
+    const h = await harness({ onSend: forward });
+    try {
+      const bytes = txBytes();
+      const b64 = Buffer.from(bytes).toString('base64');
+      await h.post('/s/wallet', JSON.stringify(rpc(1, 'sendTransaction', [b64, { encoding: 'base64', skipPreflight: true }])));
+      await h.post('/s/wallet', JSON.stringify(rpc(2, 'sendTransaction', [base58(bytes)])));
+      await h.post('/s/wallet', JSON.stringify(rpc(3, 'sendTransaction', [base58(bytes), { encoding: 'base58' }])));
+      await h.post('/s/wallet', JSON.stringify(rpc(4, 'sendTransaction', [base58(bytes), null])));
+      await h.post('/s/wallet', JSON.stringify(rpc(5, 'sendTransaction', [base58(bytes), { encoding: null }])));
+      assert.equal(h.sends.length, 5);
+      for (const s of h.sends) {
+        assert.ok(s.bytes instanceof Uint8Array);
+        assert.deepEqual([...s.bytes], [...bytes]);
+      }
+      assert.deepEqual(h.sends.map((s) => s.meta.encoding), ['base64', 'base58', 'base58', 'base58', 'base58']);
+      assert.deepEqual(h.sends.map((s) => s.meta.requestId), [1, 2, 3, 4, 5]);
+      assert.deepEqual(h.sends[0].meta.params, [b64, { encoding: 'base64', skipPreflight: true }]);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('onSend receives server "wallet" for /s/wallet and null for /', async () => {
     const h = await harness();
     try {
-      const res = JSON.parse((await h.post('/s/wallet', JSON.stringify(rpc(11, 'sendTransaction', ['AQID', { encoding: 'base64' }])))).text);
+      const body = JSON.stringify(rpc(1, 'sendTransaction', [base58(txBytes())]));
+      await h.post('/s/wallet', body);
+      await h.post('/', body);
+      await h.post('/s/jup-2', body);
+      assert.deepEqual(h.sends.map((s) => s.meta.server), ['wallet', null, 'jup-2']);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('forward ⇒ upstream receives the original request; its answer comes back verbatim', async () => {
+    const h = await harness({ onSend: forward });
+    try {
+      const body = JSON.stringify(rpc('send-1', 'sendTransaction', [Buffer.from(txBytes()).toString('base64'), { encoding: 'base64', maxRetries: 0 }]));
+      const res = await h.post('/s/wallet', body);
+      assert.equal(h.upstream.requests.length, 1);
+      assert.equal(h.upstream.requests[0].body, body);
+      assert.equal(res.text, defaultReply(body).body);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('refuse ⇒ -32099 with the reason and data; upstream receives nothing', async () => {
+    const h = await harness({
+      onSend: async () => ({ forward: false, code: -32099, message: 'approval_rejected', data: { gate: 'refused', code: 'approval_rejected' } }),
+    });
+    try {
+      const res = JSON.parse((await h.post('/s/wallet', JSON.stringify(rpc(11, 'sendTransaction', [base58(txBytes())])))).text);
       assert.equal(res.id, 11);
-      assert.equal(res.error.code, RPC_SEND_REFUSED);
+      assert.deepEqual(res.error, {
+        code: RPC_SEND_REFUSED,
+        message: 'SolFrontier Gate: approval_rejected',
+        data: { gate: 'refused', code: 'approval_rejected' },
+      });
+      assert.equal(h.sends.length, 1);
       assert.equal(h.upstream.requests.length, 0);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('onSend throwing, or answering anything but { forward: true }, refuses (I7)', async () => {
+    const answers = [
+      async () => { throw new Error('pipeline exploded'); },
+      async () => undefined,
+      async () => null,
+      async () => ({}),
+      async () => ({ forward: 'true' }),
+      async () => ({ forward: 1 }),
+      async () => ({ forward: false }),
+      async () => ({ forward: false, message: 'x', data: { big: 10n } }),
+    ];
+    for (const onSend of answers) {
+      const h = await harness({ onSend });
+      try {
+        const res = JSON.parse((await h.post('/s/wallet', JSON.stringify(rpc(1, 'sendTransaction', [base58(txBytes())])))).text);
+        assert.equal(res.error.code, RPC_SEND_REFUSED, String(onSend));
+        assert.match(res.error.message, /^SolFrontier Gate: /);
+        assert.equal(h.upstream.requests.length, 0, String(onSend));
+      } finally {
+        await h.close();
+      }
+    }
+  });
+
+  test('an undecodable transaction is -32602 and never reaches onSend', async () => {
+    // Fixed bytes, so every case below is deterministic: leading zeros, and a
+    // run that encodes to '////++++' so the URL-safe spelling really differs.
+    const good = Uint8Array.from({ length: 64 }, (_, i) => (i * 37 + 11) & 0xff);
+    good.set([0, 0], 0);
+    good.set([0xff, 0xff, 0xff, 0xfb, 0xef, 0xbe], 9);
+    const b64 = Buffer.from(good).toString('base64');
+    assert.match(b64, /\/\/\/\/\+\+\+\+/);
+    const cases = [
+      ['0OIl', undefined], // not in the base58 alphabet
+      [base58(good), { encoding: 'base64' }], // base58 text labelled base64
+      [b64.replace(/=+$/, ''), { encoding: 'base64' }], // unpadded
+      [`${b64.slice(0, 8)}*${b64.slice(8)}`, { encoding: 'base64' }], // junk Node would skip
+      [b64.replace(/\+/g, '-').replace(/\//g, '_').padEnd(b64.length, '='), { encoding: 'base64' }], // URL-safe alphabet
+      [b64, { encoding: 'binary' }], // the RPC's deprecated alias: not guessed at
+      [b64, { encoding: 'json' }],
+      [b64, { encoding: 'Base64' }],
+      ['', undefined],
+      [42, undefined],
+      ['1'.repeat(5000), undefined], // over the length cap
+      [b64, 'base64'], // config that is not an object
+    ];
+    const h = await harness({ onSend: forward });
+    try {
+      for (const [tx, config] of cases) {
+        const params = config === undefined ? [tx] : [tx, config];
+        const res = JSON.parse((await h.post('/', JSON.stringify(rpc(1, 'sendTransaction', params)))).text);
+        assert.equal(res.error?.code, -32602, JSON.stringify(params).slice(0, 80));
+        assert.equal(res.error.data.code, 'tx_decode_failed');
+      }
+      for (const params of [undefined, [], {}, { transaction: b64 }, [b64, { encoding: 'base64' }, 'extra']]) {
+        const call = { jsonrpc: '2.0', id: 1, method: 'sendTransaction' };
+        if (params !== undefined) call.params = params;
+        const res = JSON.parse((await h.post('/', JSON.stringify(call))).text);
+        assert.equal(res.error?.code, -32602, JSON.stringify(params));
+      }
+      assert.equal(h.sends.length, 0);
+      assert.equal(h.upstream.requests.length, 0);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('onSend tampering with what it is handed does not change what goes upstream', async () => {
+    const h = await harness({
+      onSend: async (bytes, meta) => {
+        bytes.fill(7);
+        meta.params[0] = 'tampered';
+        return { forward: true };
+      },
+    });
+    try {
+      const body = JSON.stringify(rpc(1, 'sendTransaction', [base58(txBytes())]));
+      await h.post('/', body);
+      assert.equal(h.upstream.requests[0].body, body);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('upstream down while forwarding a send ⇒ -32097, URL nowhere', async () => {
+    const deadPort = await freePort();
+    const upstreamUrl = `http://127.0.0.1:${deadPort}${UPSTREAM_PATH}`;
+    const cp = await startCheckpoint({ upstreamUrl, onSend: forward });
+    try {
+      const res = await send(cp.port, { path: '/s/wallet', body: JSON.stringify(rpc(2, 'sendTransaction', [base58(txBytes())])) });
+      assert.equal(JSON.parse(res.text).error.code, RPC_UPSTREAM_FAILED);
+      assert.ok(!res.text.includes(upstreamUrl));
+      assert.ok(!res.text.includes('upstream-marker'));
+    } finally {
+      await cp.close();
+    }
+  });
+
+  test('meta.signal aborts when the client hangs up', async () => {
+    let seen;
+    const aborted = new Promise((resolve) => {
+      seen = (signal) => signal.addEventListener('abort', resolve, { once: true });
+    });
+    const h = await harness({ onSend: async (bytes, meta) => { seen(meta.signal); await aborted; return { forward: false, message: 'gone', data: {} }; } });
+    try {
+      const req = request({ host: '127.0.0.1', port: h.cp.port, path: '/s/wallet', method: 'POST', agent: false });
+      req.on('error', () => {});
+      req.end(JSON.stringify(rpc(1, 'sendTransaction', [base58(txBytes())])));
+      while (h.sends.length === 0) await new Promise((r) => setTimeout(r, 5));
+      assert.equal(h.sends[0].meta.signal.aborted, false);
+      req.destroy();
+      await aborted;
+      assert.equal(h.sends[0].meta.signal.aborted, true);
+      assert.equal(h.upstream.requests.length, 0);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('a send approved after close() is not forwarded', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const h = await harness({ onSend: async () => { await gate; return { forward: true }; } });
+    try {
+      const pending = h.post('/s/wallet', JSON.stringify(rpc(1, 'sendTransaction', [base58(txBytes())]))).catch(() => null);
+      while (h.sends.length === 0) await new Promise((r) => setTimeout(r, 5));
+      await h.cp.close();
+      assert.equal(h.sends[0].meta.signal.aborted, true);
+      release();
+      await pending;
+      await new Promise((r) => setTimeout(r, 20));
+      assert.equal(h.upstream.requests.length, 0);
+    } finally {
+      await h.close();
+    }
+  });
+});
+
+describe('batches', () => {
+  test('a read and a refused send: read answered, send refused, ids preserved', async () => {
+    const h = await harness();
+    try {
+      const read = rpc('r-1', 'getBalance', ['11111111111111111111111111111111']);
+      const sendCall = rpc(77, 'sendTransaction', [base58(txBytes())]);
+      const res = JSON.parse((await h.post('/s/wallet', JSON.stringify([read, sendCall]))).text);
+      assert.equal(res.length, 2);
+      assert.equal(res[0].id, 'r-1');
+      assert.deepEqual(res[0].result, { value: 42, echo: 'getBalance' });
+      assert.equal(res[1].id, 77);
+      assert.equal(res[1].error.code, RPC_SEND_REFUSED);
+      // Only the read went up.
+      assert.equal(h.upstream.requests.length, 1);
+      assert.equal(h.upstream.requests[0].body, JSON.stringify(read));
+      assert.equal(h.sends[0].meta.server, 'wallet');
+    } finally {
+      await h.close();
+    }
+  });
+
+  test('a batch\'s sends are decided one at a time, in order', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const order = [];
+    const h = await harness({
+      onSend: async (bytes, meta) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        order.push(meta.requestId);
+        await new Promise((r) => setTimeout(r, 15));
+        active -= 1;
+        return meta.requestId === 2 ? { forward: true } : { forward: false, message: 'no', data: {} };
+      },
+    });
+    try {
+      const calls = [1, 2, 3].map((id) => rpc(id, 'sendTransaction', [base58(txBytes())]));
+      const batch = [calls[0], rpc('mid', 'sendBundle', [[]]), calls[1], { jsonrpc: '2.0', id: 'bad' }, calls[2]];
+      const res = JSON.parse((await h.post('/', JSON.stringify(batch))).text);
+      assert.equal(maxActive, 1);
+      assert.deepEqual(order, [1, 2, 3]);
+      assert.deepEqual(res.map((r) => [r.id, r.error?.code ?? 'ok']), [
+        [1, RPC_SEND_REFUSED],
+        ['mid', RPC_METHOD_DENIED],
+        [2, 'ok'],
+        ['bad', -32600],
+        [3, RPC_SEND_REFUSED],
+      ]);
+      assert.equal(h.upstream.requests.length, 1);
+      assert.equal(h.upstream.requests[0].body, JSON.stringify(calls[1]));
     } finally {
       await h.close();
     }

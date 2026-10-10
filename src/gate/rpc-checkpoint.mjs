@@ -32,6 +32,7 @@ export const RPC_METHOD_DENIED = -32098;
 export const RPC_UPSTREAM_FAILED = -32097;
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_TX_CHARS = 4096;
 const SERVER_PATH = /^\/s\/([a-z0-9-]{1,16})$/;
 const PREFIX = 'SolFrontier Gate: ';
 const UPSTREAM_FAILED_MESSAGE = `${PREFIX}upstream RPC unavailable`;
@@ -43,7 +44,14 @@ const UPSTREAM_FAILED_MESSAGE = `${PREFIX}upstream RPC unavailable`;
  * @param {string}   opts.upstreamUrl    real http(s) RPC URL; may carry an API key, never echoed
  * @param {number}   opts.port           HTTP port
  * @param {(bytes: Uint8Array, meta: object) => Promise<object>} opts.onSend
- *        decides each sendTransaction; see the module header
+ *        decides each sendTransaction. `meta` = `{ encoding, params, requestId,
+ *        server, signal }`: `server` is the `/s/<server>` name or null for
+ *        `/`; `signal` aborts when the client hangs up or the checkpoint
+ *        closes, so a hold nobody waits for can be cancelled (I7). Resolve
+ *        `{ forward: true }` to send, or `{ forward: false, message, data }`
+ *        to refuse with -32099. The checkpoint forwards iff the answer is
+ *        exactly `{ forward: true }`, even if the client has gone by then:
+ *        the caller decides (and logs, I6), so check `signal.aborted` last.
  * @param {string[]} [opts.deniedMethods] refused with -32098
  * @param {number}   [opts.upstreamTimeoutMs] per upstream request
  * @param {(line: string) => void} [opts.logger] diagnostics (already redacted); never stdout
@@ -167,9 +175,38 @@ export async function startRpcCheckpoint({
     return `[${parts.join(',')}]`;
   }
 
-  async function answerSend(call) {
-    // Fail closed until the decoding path exists.
-    return generated(rpcError(idOf(call), RPC_SEND_REFUSED, `${PREFIX}sendTransaction is not supported yet`));
+  async function answerSend(call, ctx) {
+    const id = idOf(call);
+    const decoded = decodeSendParams(call.params);
+    if (decoded.error) {
+      return generated(rpcError(id, -32602, `${PREFIX}${decoded.error}`, { code: 'tx_decode_failed' }));
+    }
+    if (closed || ctx.signal.aborted) return generated(refusal(id, 'request cancelled', { code: 'cancelled' }));
+    // Serialised before onSend runs, so what goes upstream is fixed by what
+    // was decoded, whatever onSend does with the objects it is handed.
+    const forwardBody = JSON.stringify(call);
+    let verdict;
+    try {
+      verdict = await onSend(decoded.bytes, {
+        encoding: decoded.encoding,
+        params: structuredClone(call.params),
+        requestId: id,
+        server: ctx.server,
+        signal: ctx.signal,
+      });
+    } catch (err) {
+      log(`rpc checkpoint: onSend threw (${err?.message ?? err}); send refused`);
+      return generated(refusal(id, 'transaction refused (checkpoint error)', { code: 'checkpoint_error' }));
+    }
+    // Exactly `true`: a truthy string, a 1 or a missing answer is a refusal.
+    if (verdict?.forward !== true) {
+      const message = typeof verdict?.message === 'string' && verdict.message ? verdict.message : 'transaction refused';
+      return generated(refusal(id, message, verdict?.data));
+    }
+    // A hold can outlive the checkpoint; nothing goes up after close().
+    if (closed) return generated(refusal(id, 'checkpoint closed', { code: 'cancelled' }));
+    const up = await postUpstream(forwardBody);
+    return up.ok ? up.text : upstreamFailure(id, up);
   }
 
   function upstreamFailure(id, up) {
@@ -338,12 +375,80 @@ async function readBody(req) {
   return size > MAX_BODY_BYTES ? null : Buffer.concat(chunks);
 }
 
+/**
+ * sendTransaction params → `{ bytes, encoding }` or `{ error }`.
+ *
+ * Strict on purpose: the bytes onSend reviews must be exactly the bytes the
+ * upstream decodes from the same string. Node's base64 decoder skips junk
+ * characters and accepts URL-safe and unpadded input; the upstream's does
+ * not. So base64 must round-trip to itself, and anything but `base58` /
+ * `base64` (including the RPC's deprecated `binary` alias) is refused rather
+ * than guessed at.
+ */
+export function decodeSendParams(params) {
+  if (!Array.isArray(params) || params.length < 1 || params.length > 2) {
+    return { error: 'sendTransaction expects params [transaction, config?]' };
+  }
+  const [tx, config] = params;
+  if (config !== undefined && config !== null && !isPlainObject(config)) {
+    return { error: 'sendTransaction config must be an object' };
+  }
+  const encoding = config?.encoding ?? 'base58';
+  if (encoding !== 'base58' && encoding !== 'base64') {
+    return { error: 'sendTransaction encoding must be base58 or base64' };
+  }
+  if (typeof tx !== 'string' || tx.length === 0) return { error: 'transaction must be a non-empty string' };
+  // Today's limit is 1232 bytes (1683 base58 / 1644 base64 characters). The
+  // cap leaves room for larger transactions while keeping a 2 MB string out
+  // of the quadratic base58 decoder.
+  if (tx.length > MAX_TX_CHARS) return { error: 'transaction is too long' };
+  const bytes = encoding === 'base64' ? decodeBase64Strict(tx) : decodeBase58(tx);
+  if (!bytes || bytes.length === 0) return { error: `transaction is not valid ${encoding}` };
+  return { bytes, encoding };
+}
+
+function decodeBase64Strict(text) {
+  const buf = Buffer.from(text, 'base64');
+  return buf.toString('base64') === text ? Uint8Array.from(buf) : null;
+}
+
+// Private on purpose: T3's src/solana/base58.mjs lands on a parallel branch;
+// I1 swaps it in (SPEC §4). Bitcoin alphabet; leading '1's are zero bytes.
+const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const B58_INDEX = new Map([...B58_ALPHABET].map((c, i) => [c, i]));
+
+function decodeBase58(text) {
+  const digits = []; // base-256, least significant first
+  for (const ch of text) {
+    let carry = B58_INDEX.get(ch);
+    if (carry === undefined) return null;
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i] * 58;
+      digits[i] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      digits.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  let zeros = 0;
+  while (zeros < text.length && text[zeros] === '1') zeros += 1;
+  const out = new Uint8Array(zeros + digits.length);
+  for (let i = 0; i < digits.length; i++) out[out.length - 1 - i] = digits[i];
+  return out;
+}
+
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
 function idOf(call) {
   return isPlainObject(call) && call.id !== undefined ? call.id : null;
+}
+
+function refusal(id, message, data) {
+  return rpcError(id, RPC_SEND_REFUSED, `${PREFIX}${message}`, data);
 }
 
 function rpcError(id, code, message, data) {
