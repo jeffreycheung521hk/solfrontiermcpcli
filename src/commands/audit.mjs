@@ -10,16 +10,39 @@
 // claim holds. Claims it cannot check are reported as UNVERIFIED rather than
 // quietly counted as passes — an audit tool that hides its own blind spots is
 // worse than none.
+//
+// `audit --log <sfgate-audit.jsonl>` applies the same discipline to the
+// evidence SolFrontier Gate writes (SPEC §5.8); see the second half of this
+// file. The document mode above it is unchanged.
 import { readFileSync, existsSync } from 'node:fs';
+import process from 'node:process';
 import { SolanaRpc } from '../solana/rpc.mjs';
+import { decodeTransaction, messageSha256 } from '../solana/tx.mjs';
+import { encode as b58encode, decode as b58decode } from '../solana/base58.mjs';
+import { verifyChainText } from '../gate/audit-log.mjs';
+import { createRedactor } from '../gate/config.mjs';
+import { redactSensitive } from '../mcp/session.mjs';
+import { redact as redactRpcUrls } from '../config.mjs';
 import { emitResult, info, table, style, isJsonMode } from '../cli/output.mjs';
 import { EXIT, UsageError } from '../cli/exit-codes.mjs';
 
 export const spec = {
   name: 'audit',
-  summary: 'Verify the on-chain claims of an acceptance document against the ledger',
-  usage: 'audit <path-to-document.md> [--commitment finalized]',
-  options: { commitment: { type: 'string' } },
+  summary: 'Verify an acceptance document, or a Gate audit log, against the ledger',
+  usage:
+    'audit <path-to-document.md> [--commitment finalized]\n' +
+    '  sfcli audit --log <sfgate-audit.jsonl> [--commitment confirmed|finalized] [--rpc-env NAME]',
+  options: {
+    commitment: { type: 'string' },
+    log: { type: 'string' },
+    'rpc-env': { type: 'string' },
+  },
+  notes: [
+    '--log: verify the hash chain, then fetch every transaction the log says was sent and check',
+    '  it landed, succeeded, and carries exactly the message bytes the human approved.',
+    '--rpc-env names the environment variable holding the RPC URL (default SFGATE_UPSTREAM_RPC_URL).',
+    '  If the default is unset, only the chain is checked and transactions are UNVERIFIED.',
+  ],
 };
 
 const SIGNATURE_RE = /[1-9A-HJ-NP-Za-km-z]{86,90}/g;
@@ -75,7 +98,10 @@ function row(claim, status, expected, observed, note = '') {
   return { claim, status, expected, observed, note };
 }
 
-export async function run({ flags, positionals }) {
+export async function run({ flags, positionals, env = process.env }) {
+  if (flags.log !== undefined) return runLog({ flags, positionals, env });
+  if (flags['rpc-env'] !== undefined) throw new UsageError('--rpc-env only applies to `audit --log`');
+
   const docPath = positionals[1];
   if (!docPath) throw new UsageError('audit needs a path to an acceptance document');
   if (!existsSync(docPath)) throw new UsageError(`no such file: ${docPath}`);
@@ -228,4 +254,459 @@ export async function run({ flags, positionals }) {
   }
 
   return failed.length === 0 ? EXIT.OK : EXIT.FAILED;
+}
+
+// ---------------------------------------------------------------------------
+// `audit --log <sfgate-audit.jsonl>` — re-verify Gate's evidence (SPEC §5.8).
+//
+// Two questions, answered independently:
+//
+//   1. Was the file edited? verifyChainText() re-derives every hash from
+//      genesis. That proves internal consistency only: there is no external
+//      anchor, so a log cut short at a record boundary still verifies, and
+//      the output says so.
+//   2. Did every transaction the log says was sent land, succeed, and carry
+//      exactly the message bytes the human approved? The approved
+//      messageSha256 is found through the log's own correlation ids
+//      (hold_approved → tx_review), the transaction is fetched from the
+//      ledger as base64 and decoded with the same strict decoder Gate reviews
+//      with, and the two hashes are compared. Nothing the RPC "parses" for us
+//      is trusted: jsonParsed output is a rendering, not the signed bytes.
+//
+// The log is Gate talking about itself, so a contradiction inside it is a
+// FAIL even without an RPC: a send forwarded with no approval on record is
+// exactly what I2 says can never happen. Absence of a link is different: a
+// tool result that carries a signature Gate never reviewed (a server that
+// posted its own transaction elsewhere, SPEC L1) is UNVERIFIED — reported,
+// never counted as a pass.
+
+export const DEFAULT_RPC_ENV = 'SFGATE_UPSTREAM_RPC_URL';
+const LOG_COMMITMENTS = ['confirmed', 'finalized'];
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const HEX64_RE = /^[0-9a-f]{64}$/;
+
+const short = (text, n = 8) => `${String(text).slice(0, n)}…`;
+const isId = (value) => typeof value === 'string' && value !== '';
+
+/** A 64-byte base58 signature. Length-capped first: base58 decoding is quadratic. */
+function isSignature(text) {
+  if (typeof text !== 'string' || text.length < 64 || text.length > 100) return false;
+  try {
+    return b58decode(text).length === 64;
+  } catch {
+    return false;
+  }
+}
+
+/** Every correlation id a record answers to: callId, sendId and any parentIds. */
+function idsOf(record) {
+  const ids = [record.callId, record.sendId];
+  if (Array.isArray(record.parentIds)) ids.push(...record.parentIds);
+  return ids.filter(isId);
+}
+
+function indexRecords(records) {
+  const approvals = [];
+  const reviews = [];
+  const created = new Map(); // holdId -> hold_created records
+  for (const r of records) {
+    if (r.type === 'hold_approved') approvals.push(r);
+    else if (r.type === 'tx_review') reviews.push(r);
+    else if (r.type === 'hold_created' && isId(r.holdId)) {
+      created.set(r.holdId, [...(created.get(r.holdId) ?? []), r]);
+    }
+  }
+  return { approvals, reviews, created };
+}
+
+/**
+ * The message hash one hold_approved record approved. The hold's parent id
+ * (sendId, else callId) leads to the tx_review that produced the hold. If a
+ * hold record states the hash itself, it must agree with a review; if none
+ * does, the parent must have exactly one held review — with two, nothing in
+ * the log says which one the human signed for, and guessing is how an
+ * auditor ends up vouching for the wrong transaction.
+ */
+function approvedHashOf(approval, index) {
+  const label = `hold ${isId(approval.holdId) ? approval.holdId : '?'} (line ${approval.seq})`;
+  const parent = isId(approval.sendId) ? approval.sendId : isId(approval.callId) ? approval.callId : null;
+  if (!parent) return { problem: `${label} names no sendId or callId` };
+
+  // Order matters (I6): review, then hold, then approval.
+  const held = index.reviews.filter(
+    (r) => (r.sendId === parent || r.callId === parent) && r.verdict === 'hold' && r.seq < approval.seq,
+  );
+  if (held.some((r) => !HEX64_RE.test(String(r.messageSha256)))) {
+    return { problem: `${label}: a tx_review under ${parent} has a malformed messageSha256` };
+  }
+  const stated = [approval, ...(index.created.get(approval.holdId) ?? []).filter((c) => c.seq < approval.seq)]
+    .filter((r) => r.messageSha256 !== undefined)
+    .map((r) => r.messageSha256);
+  if (stated.some((h) => !HEX64_RE.test(String(h)))) return { problem: `${label}: malformed messageSha256` };
+  if (new Set(stated).size > 1) return { problem: `${label}: hold records disagree on the message hash` };
+  if (stated.length) {
+    if (!held.some((r) => r.messageSha256 === stated[0])) {
+      return { problem: `${label}: no tx_review with verdict "hold" for message ${short(stated[0], 12)} under ${parent}` };
+    }
+    return { hash: stated[0] };
+  }
+  const distinct = [...new Set(held.map((r) => r.messageSha256))];
+  if (distinct.length === 0) return { problem: `${label}: no tx_review with verdict "hold" under ${parent}` };
+  if (distinct.length > 1) {
+    return { problem: `${label}: ${distinct.length} reviewed messages under ${parent}; the log does not say which was approved` };
+  }
+  return { hash: distinct[0] };
+}
+
+/**
+ * Approved message hashes linked to `id` by approvals logged before line
+ * `beforeSeq`. → { kind: 'none' } | { kind: 'ok', hashes } | { kind: 'broken', problems }
+ */
+function approvalsFor(id, beforeSeq, index) {
+  const linked = index.approvals.filter((a) => idsOf(a).includes(id));
+  const before = linked.filter((a) => a.seq < beforeSeq);
+  if (before.length === 0) {
+    return linked.length
+      ? { kind: 'broken', problems: [`approval for ${id} logged after line ${beforeSeq} (line ${linked[0].seq}), I6`] }
+      : { kind: 'none' };
+  }
+  const hashes = new Set();
+  const problems = [];
+  for (const approval of before) {
+    const found = approvedHashOf(approval, index);
+    if (found.hash) hashes.add(found.hash);
+    else problems.push(found.problem);
+  }
+  return problems.length ? { kind: 'broken', problems } : { kind: 'ok', hashes };
+}
+
+/**
+ * Every transaction a Gate audit log says was sent, linked to what the human
+ * approved. Pure: no RPC. One entry per distinct signature, in order of first
+ * appearance — a tool result that returns a signature Gate itself forwarded
+ * is the same transaction, reported once.
+ *
+ * @param {object[]} records parsed, chain-verified records
+ * @returns {{ signature: string|null, lines: number[], sendIds: string[], callIds: string[],
+ *             forwarded: boolean, link: 'ok'|'none'|'broken'|'malformed', approved: string[], problems: string[] }[]}
+ */
+export function collectSentTransactions(records) {
+  const index = indexRecords(records);
+  const groups = [];
+  const bySignature = new Map();
+  for (const r of records) {
+    const forwarded = r.type === 'rpc_send_forwarded';
+    if (!forwarded && !(r.type === 'tool_result' && r.signature !== undefined)) continue;
+    const key = typeof r.signature === 'string' ? r.signature : null;
+    let group = key === null ? null : bySignature.get(key);
+    if (!group) {
+      group = { signature: key, sources: [] };
+      groups.push(group);
+      if (key !== null) bySignature.set(key, group);
+    }
+    group.sources.push(r);
+  }
+  return groups.map((group) => linkGroup(group, index));
+}
+
+function linkGroup({ signature, sources }, index) {
+  const sends = sources.filter((r) => r.type === 'rpc_send_forwarded');
+  const tools = sources.filter((r) => r.type === 'tool_result');
+  const base = {
+    signature,
+    lines: sources.map((r) => r.seq),
+    sendIds: [...new Set(sends.map((r) => r.sendId).filter(isId))],
+    callIds: [...new Set(tools.map((r) => r.callId).filter(isId))],
+    forwarded: sends.length > 0,
+  };
+  const result = (link, approved = [], problems = []) => ({ ...base, link, approved: [...approved], problems });
+
+  if (!isSignature(signature)) {
+    // Gate derives a forwarded signature from the bytes it sent, so a bad one
+    // is a broken record. A tool result's is extracted by pattern from free
+    // text, and a near-miss there is not evidence of anything.
+    const problem = signature === null ? 'record carries no signature string' : 'not a 64-byte base58 signature';
+    return result(sends.length ? 'broken' : 'malformed', [], [problem]);
+  }
+
+  // One signature is one message, so every record that claims this signature
+  // and links to an approval must have approved that same message: the landed
+  // hash has to be in the INTERSECTION of their approved sets. A union would
+  // let a server answer a later, differently approved call with an old
+  // signature and still verify. A forward must link (I2). A tool result that
+  // links to nothing (a status lookup, or a server that never showed Gate its
+  // transaction) adds no claim and is skipped; a broken link is never skipped.
+  let approved = null;
+  const problems = [];
+  for (const source of sources) {
+    const isSend = source.type === 'rpc_send_forwarded';
+    const id = isSend ? source.sendId : source.callId;
+    if (!isId(id)) {
+      if (isSend) problems.push(`rpc_send_forwarded (line ${source.seq}) carries no sendId`);
+      continue;
+    }
+    const found = approvalsFor(id, source.seq, index);
+    if (found.kind === 'none') {
+      if (isSend) problems.push(`forwarded (line ${source.seq}) with no approval on record for ${id} (I2)`);
+    } else if (found.kind === 'broken') {
+      problems.push(...found.problems);
+    } else {
+      approved = approved === null ? found.hashes : new Set([...approved].filter((h) => found.hashes.has(h)));
+    }
+  }
+  if (problems.length) return result('broken', [], problems);
+  if (approved === null) return result('none');
+  if (approved.size === 0) {
+    return result('broken', [], [`the records on lines ${base.lines.join(', ')} were approved for different messages`]);
+  }
+  return result('ok', approved);
+}
+
+/** Fetch the landed transaction and compare it with what was approved. */
+async function checkLanded(rpc, signature, approved, commitment) {
+  let tx;
+  try {
+    tx = await rpc.call('getTransaction', [
+      signature,
+      { encoding: 'base64', maxSupportedTransactionVersion: 0, commitment },
+    ]);
+  } catch (err) {
+    const message = String(err?.message ?? err);
+    return { status: FAIL, observed: message.includes('getTransaction') ? message : `getTransaction failed: ${message}` };
+  }
+  if (!tx) return { status: FAIL, observed: `not found at ${commitment}` };
+
+  const [b64, encoding] = Array.isArray(tx.transaction) ? tx.transaction : [];
+  if (typeof b64 !== 'string' || encoding !== 'base64') {
+    return { status: FAIL, observed: 'the RPC returned no base64 transaction' };
+  }
+  let decoded;
+  try {
+    decoded = decodeTransaction(new Uint8Array(Buffer.from(b64, 'base64')));
+  } catch (err) {
+    return { status: FAIL, observed: `the ledger transaction does not decode: ${err.message}` };
+  }
+  // The first signature is the transaction id. An RPC that answers with a
+  // different transaction must not get to vouch for this one.
+  const first = decoded.signatures.length ? b58encode(decoded.signatures[0]) : null;
+  if (first !== signature) {
+    return { status: FAIL, observed: `the RPC returned a different transaction (${first ? short(first) : 'unsigned'})` };
+  }
+
+  const hash = messageSha256(decoded);
+  const slot = Number.isSafeInteger(tx.slot) ? tx.slot : null;
+  const problems = [];
+  if (!approved.has(hash)) problems.push(`message ${short(hash, 12)} ≠ approved`);
+  // Success means `err` is present and exactly null. A meta object without it
+  // (a proxy or a truncated answer) proves nothing, so it fails closed.
+  if (!tx.meta || typeof tx.meta !== 'object' || !('err' in tx.meta)) {
+    problems.push('no execution status (meta.err missing; success unprovable)');
+  } else if (tx.meta.err !== null) {
+    problems.push(`err ${JSON.stringify(tx.meta.err)}`);
+  }
+  return problems.length
+    ? { status: FAIL, observed: `slot ${slot}: ${problems.join('; ')}`, slot, observedMessageSha256: hash }
+    : { status: PASS, observed: `slot ${slot} · message matches · err null`, slot, observedMessageSha256: hash };
+}
+
+function describeSources(group) {
+  const ids = [...group.sendIds.map((id) => `send ${id}`), ...group.callIds.map((id) => `call ${id}`)];
+  return `${ids.join(', ') || 'no id'}; line ${group.lines.join(', ')}`;
+}
+
+/**
+ * Verify a Gate audit log: the hash chain, then every transaction it says
+ * was sent. Pure apart from `rpc` (anything with `call(method, params)`, e.g.
+ * SolanaRpc); `rpc: null` checks the chain only and reports transactions
+ * UNVERIFIED. Rows are JSON-safe.
+ *
+ * @param {{ text: string, rpc?: { call(method: string, params: any[]): Promise<any> } | null,
+ *           commitment?: 'confirmed'|'finalized', rpcHint?: string }} input
+ * @returns {Promise<{ verdict: 'VERIFIED'|'FAILED', chain: object, counts: object, results: object[], crlf: boolean }>}
+ */
+export async function verifyAuditLog({ text, rpc = null, commitment = 'finalized', rpcHint = 'no RPC configured' }) {
+  // A git checkout with core.autocrlf rewrites "\n" as "\r\n". The hash never
+  // covers the line terminator, and a canonical JSON line cannot contain a raw
+  // CR, so converting back changes no record; any other stray CR still fails.
+  const crlf = text.includes('\r\n');
+  const normalized = crlf ? text.replace(/\r\n/g, '\n') : text;
+
+  const results = [];
+  const chain = verifyChainText(normalized);
+  results.push(
+    chain.ok
+      ? row('chain', PASS, 'hash-chained from genesis', `${chain.count} records`)
+      : row('chain', FAIL, 'hash-chained from genesis', `FAIL at line ${chain.firstBadLine}: ${chain.reason}`),
+  );
+
+  // Only the verified prefix is evidence. Records from the first bad line on
+  // are not read at all: an edited record must not get to claim anything.
+  const lines = normalized.split('\n').slice(0, chain.ok ? chain.count : chain.firstBadLine - 1);
+  const records = lines.map((line) => JSON.parse(line));
+  if (!chain.ok) {
+    results.push(
+      row(`records from line ${chain.firstBadLine}`, UNVERIFIED, 'part of the chain', 'not read',
+        'the chain is broken there, so they are not evidence'),
+    );
+  }
+
+  for (const group of collectSentTransactions(records)) {
+    const claim = `tx ${group.signature === null ? '(none)' : short(group.signature)}`;
+    const extra = {
+      signature: group.signature,
+      lines: group.lines,
+      sendIds: group.sendIds,
+      callIds: group.callIds,
+      approvedMessageSha256: group.approved,
+    };
+    const note = describeSources(group);
+
+    if (group.link === 'broken') {
+      results.push({ ...row(claim, FAIL, 'an approval on record for this exact message', group.problems.join('; '), note), ...extra });
+      continue;
+    }
+    if (group.link === 'malformed') {
+      results.push({ ...row(claim, UNVERIFIED, 'a 64-byte signature', group.problems.join('; '), note), ...extra });
+      continue;
+    }
+    if (group.link === 'none') {
+      results.push({
+        ...row(claim, UNVERIFIED, 'an approved tx_review linked to the call', 'none: Gate never reviewed this transaction', note),
+        ...extra,
+      });
+      continue;
+    }
+
+    const expected = group.approved.length === 1
+      ? `message ${short(group.approved[0], 12)} approved, err null`
+      : `one of ${group.approved.length} approved messages, err null`;
+    if (!rpc) {
+      results.push({ ...row(claim, UNVERIFIED, expected, `not checked: ${rpcHint}`, note), ...extra });
+      continue;
+    }
+    const landed = await checkLanded(rpc, group.signature, new Set(group.approved), commitment);
+    results.push({
+      ...row(claim, landed.status, expected, landed.observed, note),
+      ...extra,
+      slot: landed.slot ?? null,
+      observedMessageSha256: landed.observedMessageSha256 ?? null,
+    });
+  }
+
+  const counts = {
+    passed: results.filter((r) => r.status === PASS).length,
+    failed: results.filter((r) => r.status === FAIL).length,
+    unverified: results.filter((r) => r.status === UNVERIFIED).length,
+  };
+  return {
+    verdict: counts.failed === 0 ? 'VERIFIED' : 'FAILED',
+    chain: chain.ok
+      ? { ok: true, records: chain.count }
+      : { ok: false, records: chain.count, firstBadLine: chain.firstBadLine, reason: chain.reason },
+    counts,
+    results,
+    crlf,
+  };
+}
+
+/** Deep copy with every string passed through `fn` (keys included). */
+function redactDeep(value, fn) {
+  if (typeof value === 'string') return fn(value);
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, fn));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[fn(k)] = redactDeep(v, fn);
+    return out;
+  }
+  return value;
+}
+
+async function runLog({ flags, positionals, env }) {
+  const file = flags.log;
+  if (positionals.length > 1) throw new UsageError('audit takes a document or --log <file>, not both');
+  if (!file) throw new UsageError('--log needs the path of a Gate audit log');
+  if (!existsSync(file)) throw new UsageError(`no such file: ${file}`);
+
+  const commitment = flags.commitment ?? 'finalized';
+  if (!LOG_COMMITMENTS.includes(commitment)) {
+    throw new UsageError(`--commitment must be ${LOG_COMMITMENTS.join(' or ')}`);
+  }
+
+  // --rpc-env takes a NAME. Someone pasting the URL itself must not see it
+  // echoed back in the error (I4), so the value is never quoted here.
+  const rpcEnv = flags['rpc-env'] ?? DEFAULT_RPC_ENV;
+  if (!ENV_NAME_RE.test(rpcEnv)) {
+    throw new UsageError('--rpc-env takes the NAME of an environment variable (letters, digits, _), not its value');
+  }
+  const rawUrl = env[rpcEnv] ?? '';
+  const url = rawUrl.trim();
+  if (!url && flags['rpc-env'] !== undefined) {
+    // An explicit request for a ledger check that cannot happen is refused,
+    // not quietly downgraded to chain-only.
+    throw new UsageError(`${rpcEnv} is not set`, { hint: `export ${rpcEnv}, or omit --rpc-env for a chain-only check` });
+  }
+
+  // The URL may embed an API key (I4). Every string that leaves this command
+  // goes through this: the exact URL and its key-looking parts, any env value
+  // that looks like a URL or a secret, and any remaining http(s) URL.
+  const known = createRedactor(url ? [rawUrl, url] : []);
+  const scrub = (text) => redactRpcUrls(redactSensitive(known(text), env), env);
+
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    throw new UsageError(`cannot read ${file}: ${err.code ?? err.message}`);
+  }
+  if (text === '') throw new UsageError(`${file} is empty: there is nothing to verify`);
+
+  const rpc = url ? new SolanaRpc({ url, timeoutMs: 20000 }) : null;
+  info(
+    scrub(
+      `auditing ${style.bold(file)}: ` +
+        (rpc ? `ledger via ${rpcEnv} at ${commitment}` : `chain only (${rpcEnv} is not set)`),
+    ),
+  );
+  info('');
+
+  const report = redactDeep(
+    await verifyAuditLog({ text, rpc, commitment, rpcHint: `no RPC (set ${rpcEnv})` }),
+    scrub,
+  );
+  const { results, counts } = report;
+  const rederived = results.filter((r) => r.signature !== undefined && r.status === PASS).length;
+
+  if (isJsonMode()) {
+    emitResult({
+      log: scrub(file),
+      verdict: report.verdict,
+      rpc: rpc ? { env: rpcEnv, commitment } : null,
+      chain: report.chain,
+      counts,
+      crlfNormalized: report.crlf,
+      results,
+    });
+  } else {
+    table(
+      ['', 'claim', 'expected', 'observed'],
+      results.map((r) => [
+        r.status === PASS ? style.green('PASS') : r.status === FAIL ? style.red('FAIL') : style.yellow('UNVER'),
+        r.claim,
+        r.expected,
+        r.observed + (r.note ? style.dim(` (${r.note})`) : ''),
+      ]),
+    );
+    info('');
+    if (report.crlf) info(style.dim('CRLF line endings were read as LF (a git autocrlf checkout); no record changes.'));
+    info(
+      counts.failed === 0
+        ? `${style.green('VERIFIED')} — chain intact (${report.chain.records} records), ` +
+            `${rederived} transaction(s) re-derived from the ledger, ${counts.unverified} not independently checkable`
+        : `${style.red('FAILED')} — ${counts.failed} row(s) do not hold`,
+    );
+    info(style.dim('The chain proves the file was not edited from genesis to its last line; it cannot'));
+    info(style.dim('prove that no records were cut from the end. UNVERIFIED rows are not passes.'));
+  }
+
+  return counts.failed === 0 ? EXIT.OK : EXIT.FAILED;
 }
