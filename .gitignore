@@ -9,3 +9,6 @@ node_modules/
 # hackathon: personal configs and live audit logs (repo root only)
 /sfgate.*.json
 /sfgate-audit*.jsonl
+
+# Local manual-signing prototype state; published proof lives under docs/proof/.
+/.sfgate-phantom-state/

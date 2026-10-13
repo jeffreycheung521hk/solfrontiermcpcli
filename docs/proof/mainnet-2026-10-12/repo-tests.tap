@@ -1,0 +1,5020 @@
+
+> solfrontier-cli@1.0.0 test
+> node scripts/run-tests.mjs
+
+running 33 test file(s): audit-last-attempt.test.mjs, cli.test.mjs, demo-safety.test.mjs, env-safety.test.mjs, executor-heartbeat.test.mjs, fixtures-naive-wallet.test.mjs, framing.test.mjs, funding-proof.test.mjs, funding-window.test.mjs, gate-approval.test.mjs, gate-attacks.test.mjs, gate-audit-log.test.mjs, gate-audit-verify.test.mjs, gate-config.test.mjs, gate-core.test.mjs, gate-e2e.test.mjs, gate-review.test.mjs, gate-rpc-checkpoint.test.mjs, gate-tool-policy.test.mjs, jupiter-blockhash-window.test.mjs, orchestration.test.mjs, phantom-keyless-page-expiry.test.mjs, phantom-keyless-runtime.test.mjs, phantom-keyless-server.test.mjs, refund-proof.test.mjs, rpc-encoding.test.mjs, rpc-request-shape.test.mjs, solana-base58.test.mjs, solana-instructions.test.mjs, solana-simulate.test.mjs, solana-tx.test.mjs, unit.test.mjs, verify-phantom-mainnet.test.mjs
+TAP version 13
+# Subtest: 2026-10-11 records: old build shows no stage, but the 211 ms gap points at the blockhash RPC
+ok 1 - 2026-10-11 records: old build shows no stage, but the 211 ms gap points at the blockhash RPC
+  ---
+  duration_ms: 2.965167
+  type: 'test'
+  ...
+# Subtest: new build names the failing guard, the code and the elapsed time
+ok 2 - new build names the failing guard, the code and the elapsed time
+  ---
+  duration_ms: 0.315
+  type: 'test'
+  ...
+# Subtest: watchdog expiry before approval is reported with the phase
+ok 3 - watchdog expiry before approval is reported with the phase
+  ---
+  duration_ms: 0.250209
+  type: 'test'
+  ...
+# Subtest: submitted attempt points to on-chain verification, never a resend
+ok 4 - submitted attempt points to on-chain verification, never a resend
+  ---
+  duration_ms: 0.153542
+  type: 'test'
+  ...
+# Subtest: unsigned last quote and empty log are reported plainly
+ok 5 - unsigned last quote and empty log are reported plainly
+  ---
+  duration_ms: 0.092875
+  type: 'test'
+  ...
+# Subtest: a newer unsigned rehearsal quote is the latest attempt and shows its measured window
+ok 6 - a newer unsigned rehearsal quote is the latest attempt and shows its measured window
+  ---
+  duration_ms: 0.296959
+  type: 'test'
+  ...
+# Subtest: unsigned local safety deadline is distinguished from chain expiry
+ok 7 - unsigned local safety deadline is distinguished from chain expiry
+  ---
+  duration_ms: 0.175
+  type: 'test'
+  ...
+# Subtest: pending hold cancelled by local deadline is named in the timeline
+ok 8 - pending hold cancelled by local deadline is named in the timeline
+  ---
+  duration_ms: 0.207667
+  type: 'test'
+  ...
+# Subtest: late payment is reported without a hold and earlier quote expiry cannot contaminate a replacement
+ok 9 - late payment is reported without a hold and earlier quote expiry cannot contaminate a replacement
+  ---
+  duration_ms: 0.501333
+  type: 'test'
+  ...
+# Subtest: an explicit refusal after an audit intent still identifies the failed final guard
+ok 10 - an explicit refusal after an audit intent still identifies the failed final guard
+  ---
+  duration_ms: 0.469875
+  type: 'test'
+  ...
+# Subtest: discovery
+    # Subtest: tools list prints the fake tools and exits 0
+    ok 1 - tools list prints the fake tools and exits 0
+      ---
+      duration_ms: 386.399958
+      type: 'test'
+      ...
+    # Subtest: --json emits exactly one parseable document on stdout
+    ok 2 - --json emits exactly one parseable document on stdout
+      ---
+      duration_ms: 444.849667
+      type: 'test'
+      ...
+    # Subtest: tools describe returns the input schema
+    ok 3 - tools describe returns the input schema
+      ---
+      duration_ms: 396.529458
+      type: 'test'
+      ...
+    # Subtest: tools describe on an unknown tool exits 1, not 2
+    ok 4 - tools describe on an unknown tool exits 1, not 2
+      ---
+      duration_ms: 331.77925
+      type: 'test'
+      ...
+    1..4
+ok 11 - discovery
+  ---
+  duration_ms: 1560.939042
+  type: 'suite'
+  ...
+# Subtest: generic call with schema coercion
+    # Subtest: coerces integers and booleans per the declared schema
+    ok 1 - coerces integers and booleans per the declared schema
+      ---
+      duration_ms: 359.843292
+      type: 'test'
+      ...
+    # Subtest: rejects an unknown argument before sending
+    ok 2 - rejects an unknown argument before sending
+      ---
+      duration_ms: 290.524959
+      type: 'test'
+      ...
+    # Subtest: rejects a missing required argument
+    ok 3 - rejects a missing required argument
+      ---
+      duration_ms: 315.384917
+      type: 'test'
+      ...
+    # Subtest: rejects a non-integer for an integer field
+    ok 4 - rejects a non-integer for an integer field
+      ---
+      duration_ms: 298.74775
+      type: 'test'
+      ...
+    # Subtest: --dry-run shows the payload without contacting the tool
+    ok 5 - --dry-run shows the payload without contacting the tool
+      ---
+      duration_ms: 272.189416
+      type: 'test'
+      ...
+    1..5
+ok 12 - generic call with schema coercion
+  ---
+  duration_ms: 1537.563416
+  type: 'suite'
+  ...
+# Subtest: transport failure modes
+    # Subtest: a hanging server times out with exit 4
+    ok 1 - a hanging server times out with exit 4
+      ---
+      duration_ms: 981.01775
+      type: 'test'
+      ...
+    # Subtest: malformed output is a transport error, not a silent timeout
+    ok 2 - malformed output is a transport error, not a silent timeout
+      ---
+      duration_ms: 249.499833
+      type: 'test'
+      ...
+    # Subtest: a server that dies mid-session fails fast with exit 3
+    ok 3 - a server that dies mid-session fails fast with exit 3
+      ---
+      duration_ms: 233.562625
+      type: 'test'
+      ...
+    # Subtest: a JSON-RPC error response maps to exit 3
+    ok 4 - a JSON-RPC error response maps to exit 3
+      ---
+      duration_ms: 223.208125
+      type: 'test'
+      ...
+    # Subtest: isError:true maps to exit 1 and still prints the body
+    ok 5 - isError:true maps to exit 1 and still prints the body
+      ---
+      duration_ms: 234.821333
+      type: 'test'
+      ...
+    # Subtest: server stderr is surfaced when something fails
+    ok 6 - server stderr is surfaced when something fails
+      ---
+      duration_ms: 987.139292
+      type: 'test'
+      ...
+    # Subtest: a reply split mid-UTF-8-character still decodes correctly
+    ok 7 - a reply split mid-UTF-8-character still decodes correctly
+      ---
+      duration_ms: 269.714584
+      type: 'test'
+      ...
+    # Subtest: an unexpected response id is ignored rather than mis-resolved
+    ok 8 - an unexpected response id is ignored rather than mis-resolved
+      ---
+      duration_ms: 974.756417
+      type: 'test'
+      ...
+    1..8
+ok 13 - transport failure modes
+  ---
+  duration_ms: 4154.482666
+  type: 'suite'
+  ...
+# Subtest: argument discipline
+    # Subtest: an unknown flag is a usage error
+    ok 1 - an unknown flag is a usage error
+      ---
+      duration_ms: 155.425791
+      type: 'test'
+      ...
+    # Subtest: --version prints a semver and exits 0
+    ok 2 - --version prints a semver and exits 0
+      ---
+      duration_ms: 143.177334
+      type: 'test'
+      ...
+    # Subtest: --help for a command exits 0 and documents it
+    ok 3 - --help for a command exits 0 and documents it
+      ---
+      duration_ms: 149.415833
+      type: 'test'
+      ...
+    # Subtest: no arguments prints general help with exit 2
+    ok 4 - no arguments prints general help with exit 2
+      ---
+      duration_ms: 142.432208
+      type: 'test'
+      ...
+    # Subtest: a global flag value is never mistaken for the command
+    ok 5 - a global flag value is never mistaken for the command
+      ---
+      duration_ms: 221.924667
+      type: 'test'
+      ...
+    # Subtest: --timeout-ms rejects a non-numeric value
+    ok 6 - --timeout-ms rejects a non-numeric value
+      ---
+      duration_ms: 167.560792
+      type: 'test'
+      ...
+    1..6
+ok 14 - argument discipline
+  ---
+  duration_ms: 980.335417
+  type: 'suite'
+  ...
+# Subtest: validation happens before any server is spawned
+    # Subtest: a bad flag with a nonexistent binary still yields usage, not transport
+    ok 1 - a bad flag with a nonexistent binary still yields usage, not transport
+      ---
+      duration_ms: 149.948583
+      type: 'test'
+      ...
+    # Subtest: missing required flags never reach the transport layer
+    ok 2 - missing required flags never reach the transport layer
+      ---
+      duration_ms: 159.714
+      type: 'test'
+      ...
+    1..2
+ok 15 - validation happens before any server is spawned
+  ---
+  duration_ms: 309.887083
+  type: 'suite'
+  ...
+# Subtest: domain command validation
+    # Subtest: quote rejects an unsupported symbol
+    ok 1 - quote rejects an unsupported symbol
+      ---
+      duration_ms: 146.045167
+      type: 'test'
+      ...
+    # Subtest: quote rejects more precision than the mint has
+    ok 2 - quote rejects more precision than the mint has
+      ---
+      duration_ms: 147.411459
+      type: 'test'
+      ...
+    # Subtest: quote rejects slippage above the server policy cap
+    ok 3 - quote rejects slippage above the server policy cap
+      ---
+      duration_ms: 139.755167
+      type: 'test'
+      ...
+    # Subtest: propose sends the pinned rail constants
+    ok 4 - propose sends the pinned rail constants
+      ---
+      duration_ms: 227.971959
+      type: 'test'
+      ...
+    # Subtest: threshold outside 1..10000 is rejected
+    ok 5 - threshold outside 1..10000 is rejected
+      ---
+      duration_ms: 148.725791
+      type: 'test'
+      ...
+    1..5
+ok 16 - domain command validation
+  ---
+  duration_ms: 810.23775
+  type: 'suite'
+  ...
+# Subtest: the demonstration cannot be turned into a funded run
+    # Subtest: every argument that could move money is blocked
+    ok 1 - every argument that could move money is blocked
+      ---
+      duration_ms: 1.648459
+      type: 'test'
+      ...
+    # Subtest: the arguments the demo actually uses are not blocked
+    ok 2 - the arguments the demo actually uses are not blocked
+      ---
+      duration_ms: 0.208208
+      type: 'test'
+      ...
+    # Subtest: no stage passes a wallet, a keypair or the executor
+    ok 3 - no stage passes a wallet, a keypair or the executor
+      ---
+      duration_ms: 0.184041
+      type: 'test'
+      ...
+    # Subtest: stages assert an exact exit code, not merely a non-zero one
+    ok 4 - stages assert an exact exit code, not merely a non-zero one
+      ---
+      duration_ms: 0.279167
+      type: 'test'
+      ...
+    # Subtest: the demo exits non-zero when a stage produces the wrong code
+    ok 5 - the demo exits non-zero when a stage produces the wrong code
+      ---
+      duration_ms: 0.0985
+      type: 'test'
+      ...
+    # Subtest: it refuses to run in a shell holding the signing key
+    ok 6 - it refuses to run in a shell holding the signing key
+      ---
+      duration_ms: 0.088125
+      type: 'test'
+      ...
+    # Subtest: the entry point it spawns exists
+    ok 7 - the entry point it spawns exists
+      ---
+      duration_ms: 0.538375
+      type: 'test'
+      ...
+    # Subtest: the script is pure ASCII
+    ok 8 - the script is pure ASCII
+      ---
+      duration_ms: 6.669334
+      type: 'test'
+      ...
+    1..8
+ok 17 - the demonstration cannot be turned into a funded run
+  ---
+  duration_ms: 11.112458
+  type: 'suite'
+  ...
+# Subtest: child environment
+    # Subtest: the controlled wallet keypair path never reaches a spawned binary
+    ok 1 - the controlled wallet keypair path never reaches a spawned binary
+      ---
+      duration_ms: 0.915792
+      type: 'test'
+      ...
+    # Subtest: every secret-shaped variable is withheld
+    ok 2 - every secret-shaped variable is withheld
+      ---
+      duration_ms: 0.097708
+      type: 'test'
+      ...
+    # Subtest: ordinary variables still pass through, so the server can run
+    ok 3 - ordinary variables still pass through, so the server can run
+      ---
+      duration_ms: 0.162334
+      type: 'test'
+      ...
+    # Subtest: the RPC endpoint is still provided: the server needs it to work
+    ok 4 - the RPC endpoint is still provided: the server needs it to work
+      ---
+      duration_ms: 0.070083
+      type: 'test'
+      ...
+    1..4
+ok 18 - child environment
+  ---
+  duration_ms: 2.152875
+  type: 'suite'
+  ...
+# Subtest: Gate environment stripping
+    # Subtest: Windows strips regex and configured names regardless of casing
+    ok 1 - Windows strips regex and configured names regardless of casing
+      ---
+      duration_ms: 1.22125
+      type: 'test'
+      ...
+    # Subtest: POSIX regex rules retain their supplied case sensitivity
+    ok 2 - POSIX regex rules retain their supplied case sensitivity
+      ---
+      duration_ms: 0.118
+      type: 'test'
+      ...
+    # Subtest: stateful patterns strip every matching name without altering caller state
+    ok 3 - stateful patterns strip every matching name without altering caller state
+      ---
+      duration_ms: 0.29825
+      type: 'test'
+      ...
+    # Subtest: Windows explicit injections remove inherited aliases before spawning
+    ok 4 - Windows explicit injections remove inherited aliases before spawning
+      ---
+      duration_ms: 0.585875
+      type: 'test'
+      ...
+    1..4
+ok 19 - Gate environment stripping
+  ---
+  duration_ms: 2.609625
+  type: 'suite'
+  ...
+# Subtest: verbose frame dumps
+    # Subtest: a secret inside a protocol frame is redacted before it is echoed
+    ok 1 - a secret inside a protocol frame is redacted before it is echoed
+      ---
+      duration_ms: 0.93525
+      type: 'test'
+      ...
+    # Subtest: an ordinary frame survives intact, so --verbose stays useful
+    ok 2 - an ordinary frame survives intact, so --verbose stays useful
+      ---
+      duration_ms: 0.460042
+      type: 'test'
+      ...
+    1..2
+ok 20 - verbose frame dumps
+  ---
+  duration_ms: 1.710959
+  type: 'suite'
+  ...
+# Subtest: redaction of server output
+    # Subtest: a secret echoed by a server log line is replaced
+    ok 1 - a secret echoed by a server log line is replaced
+      ---
+      duration_ms: 0.194125
+      type: 'test'
+      ...
+    # Subtest: the RPC endpoint is replaced wherever it appears
+    ok 2 - the RPC endpoint is replaced wherever it appears
+      ---
+      duration_ms: 0.091167
+      type: 'test'
+      ...
+    # Subtest: credentials embedded in any URL are stripped
+    ok 3 - credentials embedded in any URL are stripped
+      ---
+      duration_ms: 0.104167
+      type: 'test'
+      ...
+    # Subtest: ordinary text is left intact
+    ok 4 - ordinary text is left intact
+      ---
+      duration_ms: 0.071916
+      type: 'test'
+      ...
+    # Subtest: short values are not used as needles, to avoid mangling everything
+    ok 5 - short values are not used as needles, to avoid mangling everything
+      ---
+      duration_ms: 0.072458
+      type: 'test'
+      ...
+    1..5
+ok 21 - redaction of server output
+  ---
+  duration_ms: 0.71075
+  type: 'suite'
+  ...
+# Subtest: executor liveness
+    # Subtest: a recent heartbeat from the pinned wallet is live
+    ok 1 - a recent heartbeat from the pinned wallet is live
+      ---
+      duration_ms: 0.999791
+      type: 'test'
+      ...
+    # Subtest: the staleness boundary is exclusive, and matches the server constant
+    ok 2 - the staleness boundary is exclusive, and matches the server constant
+      ---
+      duration_ms: 0.108958
+      type: 'test'
+      ...
+    # Subtest: a heartbeat for a different controlled wallet proves nothing
+    ok 3 - a heartbeat for a different controlled wallet proves nothing
+      ---
+      duration_ms: 0.089542
+      type: 'test'
+      ...
+    # Subtest: a timestamp beyond tolerated skew is refused
+    ok 4 - a timestamp beyond tolerated skew is refused
+      ---
+      duration_ms: 0.0915
+      type: 'test'
+      ...
+    # Subtest: anything malformed is refused rather than assumed fine
+    ok 5 - anything malformed is refused rather than assumed fine
+      ---
+      duration_ms: 0.211208
+      type: 'test'
+      ...
+    # Subtest: a missing file is unreadable, which is a refusal
+    ok 6 - a missing file is unreadable, which is a refusal
+      ---
+      duration_ms: 12.842125
+      type: 'test'
+      ...
+    # Subtest: a real file written by the server shape is read and judged
+    ok 7 - a real file written by the server shape is read and judged
+      ---
+      duration_ms: 22.378458
+      type: 'test'
+      ...
+    1..7
+ok 22 - executor liveness
+  ---
+  duration_ms: 38.642791
+  type: 'suite'
+  ...
+# Subtest: naive wallet fixture
+    # Subtest: imports nothing from src/
+    ok 1 - imports nothing from src/
+      ---
+      duration_ms: 1.797958
+      type: 'test'
+      ...
+    # Subtest: transfer_sol builds a transaction whose signature verifies, with the right lamports and destination
+    ok 2 - transfer_sol builds a transaction whose signature verifies, with the right lamports and destination
+      ---
+      duration_ms: 432.181292
+      type: 'test'
+      ...
+    # Subtest: sign_and_send signs and forwards exactly the given message bytes
+    ok 3 - sign_and_send signs and forwards exactly the given message bytes
+      ---
+      duration_ms: 240.420541
+      type: 'test'
+      ...
+    # Subtest: token_info returns the demo prop text (and never signs or sends)
+    ok 4 - token_info returns the demo prop text (and never signs or sends)
+      ---
+      duration_ms: 128.709625
+      type: 'test'
+      ...
+    # Subtest: a JSON-RPC error from the RPC comes back as an isError tool result
+    ok 5 - a JSON-RPC error from the RPC comes back as an isError tool result
+      ---
+      duration_ms: 207.64175
+      type: 'test'
+      ...
+    # Subtest: --rogue attempts exactly one send and logs only to stderr
+    ok 6 - --rogue attempts exactly one send and logs only to stderr
+      ---
+      duration_ms: 7008.905125
+      type: 'test'
+      ...
+    # Subtest: no key material is printed to stdout or stderr (pubkey only)
+    ok 7 - no key material is printed to stdout or stderr (pubkey only)
+      ---
+      duration_ms: 161.266333
+      type: 'test'
+      ...
+    1..7
+ok 23 - naive wallet fixture
+  ---
+  duration_ms: 8182.961167
+  type: 'suite'
+  ...
+# Subtest: LineFramer invariants
+    # Subtest: frames survive every possible chunk boundary (200 randomized splits)
+    ok 1 - frames survive every possible chunk boundary (200 randomized splits)
+      ---
+      duration_ms: 16.095625
+      type: 'test'
+      ...
+    # Subtest: a multi-byte character split across chunks is not corrupted
+    ok 2 - a multi-byte character split across chunks is not corrupted
+      ---
+      duration_ms: 0.297166
+      type: 'test'
+      ...
+    # Subtest: byte-at-a-time delivery still reconstructs every frame
+    ok 3 - byte-at-a-time delivery still reconstructs every frame
+      ---
+      duration_ms: 0.427834
+      type: 'test'
+      ...
+    # Subtest: CRLF line endings are normalized away
+    ok 4 - CRLF line endings are normalized away
+      ---
+      duration_ms: 0.086084
+      type: 'test'
+      ...
+    # Subtest: blank and whitespace-only lines are not frames
+    ok 5 - blank and whitespace-only lines are not frames
+      ---
+      duration_ms: 0.079458
+      type: 'test'
+      ...
+    # Subtest: an unterminated final line stays pending, never half-emitted
+    ok 6 - an unterminated final line stays pending, never half-emitted
+      ---
+      duration_ms: 0.179209
+      type: 'test'
+      ...
+    # Subtest: a frame far larger than any chunk is reassembled intact
+    ok 7 - a frame far larger than any chunk is reassembled intact
+      ---
+      duration_ms: 5.758834
+      type: 'test'
+      ...
+    1..7
+ok 24 - LineFramer invariants
+  ---
+  duration_ms: 24.116958
+  type: 'suite'
+  ...
+# Subtest: the real 2026-08-02 payload
+    # Subtest: the fixture still carries the length-prefixed RPC memo summary
+    ok 1 - the fixture still carries the length-prefixed RPC memo summary
+      ---
+      duration_ms: 0.869333
+      type: 'test'
+      ...
+    # Subtest: selection keeps the real row despite its memo summary
+    ok 2 - selection keeps the real row despite its memo summary
+      ---
+      duration_ms: 1.029916
+      type: 'test'
+      ...
+    # Subtest: validation proves the real transaction
+    ok 3 - validation proves the real transaction
+      ---
+      duration_ms: 0.438375
+      type: 'test'
+      ...
+    # Subtest: the full path selects, fetches and matches it
+    ok 4 - the full path selects, fetches and matches it
+      ---
+      duration_ms: 0.198916
+      type: 'test'
+      ...
+    # Subtest: balances bind to the pinned ATAs by accountIndex
+    ok 5 - balances bind to the pinned ATAs by accountIndex
+      ---
+      duration_ms: 0.205
+      type: 'test'
+      ...
+    # Subtest: the outer memo comes from the instruction, unprefixed
+    ok 6 - the outer memo comes from the instruction, unprefixed
+      ---
+      duration_ms: 0.078333
+      type: 'test'
+      ...
+    # Subtest: a foreign memo is rejected and the signature is recorded as seen
+    ok 7 - a foreign memo is rejected and the signature is recorded as seen
+      ---
+      duration_ms: 0.233
+      type: 'test'
+      ...
+    1..7
+ok 25 - the real 2026-08-02 payload
+  ---
+  duration_ms: 4.036083
+  type: 'suite'
+  ...
+# Subtest: an old payment cannot satisfy a new intent
+    # Subtest: the real transaction is rejected when it predates the intent
+    ok 1 - the real transaction is rejected when it predates the intent
+      ---
+      duration_ms: 0.225666
+      type: 'test'
+      ...
+    # Subtest: a transaction in the same slot as the floor is rejected
+    ok 2 - a transaction in the same slot as the floor is rejected
+      ---
+      duration_ms: 0.24075
+      type: 'test'
+      ...
+    # Subtest: a transaction after the floor is accepted
+    ok 3 - a transaction after the floor is accepted
+      ---
+      duration_ms: 0.3245
+      type: 'test'
+      ...
+    # Subtest: the floor defeats a replay that the signature baseline misses
+    ok 4 - the floor defeats a replay that the signature baseline misses
+      ---
+      duration_ms: 0.153208
+      type: 'test'
+      ...
+    # Subtest: a transaction with no slot is rejected when a floor is set
+    ok 5 - a transaction with no slot is rejected when a floor is set
+      ---
+      duration_ms: 0.126458
+      type: 'test'
+      ...
+    1..5
+ok 26 - an old payment cannot satisfy a new intent
+  ---
+  duration_ms: 1.445708
+  type: 'suite'
+  ...
+# Subtest: selection excludes only what is provably irrelevant
+    # Subtest: honours the baseline
+    ok 1 - honours the baseline
+      ---
+      duration_ms: 0.089292
+      type: 'test'
+      ...
+    # Subtest: honours the seen set
+    ok 2 - honours the seen set
+      ---
+      duration_ms: 0.054416
+      type: 'test'
+      ...
+    # Subtest: drops transactions that failed on chain
+    ok 3 - drops transactions that failed on chain
+      ---
+      duration_ms: 0.052125
+      type: 'test'
+      ...
+    # Subtest: never judges memo content
+    ok 4 - never judges memo content
+      ---
+      duration_ms: 0.203458
+      type: 'test'
+      ...
+    # Subtest: a signature that is not yet visible is retried, not blacklisted
+    ok 5 - a signature that is not yet visible is retried, not blacklisted
+      ---
+      duration_ms: 0.0745
+      type: 'test'
+      ...
+    1..5
+ok 27 - selection excludes only what is provably irrelevant
+  ---
+  duration_ms: 0.562292
+  type: 'suite'
+  ...
+# Subtest: validation rejects near misses
+    # Subtest: an on-chain error
+    ok 1 - an on-chain error
+      ---
+      duration_ms: 0.171458
+      type: 'test'
+      ...
+    # Subtest: the payer did not sign
+    ok 2 - the payer did not sign
+      ---
+      duration_ms: 0.083958
+      type: 'test'
+      ...
+    # Subtest: a length-prefixed memo in the instruction is a different memo
+    ok 3 - a length-prefixed memo in the instruction is a different memo
+      ---
+      duration_ms: 0.095625
+      type: 'test'
+      ...
+    # Subtest: an extra memo, in either position
+    ok 4 - an extra memo, in either position
+      ---
+      duration_ms: 0.120792
+      type: 'test'
+      ...
+    # Subtest: a superset memo
+    ok 5 - a superset memo
+      ---
+      duration_ms: 0.089
+      type: 'test'
+      ...
+    # Subtest: wrong destination, authority, amount and decimals
+    ok 6 - wrong destination, authority, amount and decimals
+      ---
+      duration_ms: 0.394625
+      type: 'test'
+      ...
+    # Subtest: a decoy token account for the same owner and mint does not fool it
+    ok 7 - a decoy token account for the same owner and mint does not fool it
+      ---
+      duration_ms: 0.1325
+      type: 'test'
+      ...
+    # Subtest: a missing post-balance row is fatal, not read as zero
+    ok 8 - a missing post-balance row is fatal, not read as zero
+      ---
+      duration_ms: 1.84
+      type: 'test'
+      ...
+    # Subtest: a missing pre-balance row means the ATA was created in this transaction
+    ok 9 - a missing pre-balance row means the ATA was created in this transaction
+      ---
+      duration_ms: 0.381792
+      type: 'test'
+      ...
+    # Subtest: a credit without the matching debit from the registered payer
+    ok 10 - a credit without the matching debit from the registered payer
+      ---
+      duration_ms: 0.205459
+      type: 'test'
+      ...
+    # Subtest: a balance row whose owner does not match the pinned wallet
+    ok 11 - a balance row whose owner does not match the pinned wallet
+      ---
+      duration_ms: 0.136292
+      type: 'test'
+      ...
+    1..11
+ok 28 - validation rejects near misses
+  ---
+  duration_ms: 3.979792
+  type: 'suite'
+  ...
+# Subtest: the approval cutoff is earlier than the funding deadline
+    # Subtest: the post-signing budget is derived from its parts, not chosen
+    ok 1 - the post-signing budget is derived from its parts, not chosen
+      ---
+      duration_ms: 0.928417
+      type: 'test'
+      ...
+    # Subtest: the budget is at least the 120s floor set after the incident
+    ok 2 - the budget is at least the 120s floor set after the incident
+      ---
+      duration_ms: 2.291667
+      type: 'test'
+      ...
+    # Subtest: in a 180s window a human has roughly the first 60s
+    ok 3 - in a 180s window a human has roughly the first 60s
+      ---
+      duration_ms: 0.607542
+      type: 'test'
+      ...
+    # Subtest: signing is allowed right up to the approval cutoff
+    ok 4 - signing is allowed right up to the approval cutoff
+      ---
+      duration_ms: 0.214083
+      type: 'test'
+      ...
+    # Subtest: signing stops at the approval cutoff, long before the deadline
+    ok 5 - signing stops at the approval cutoff, long before the deadline
+      ---
+      duration_ms: 0.137958
+      type: 'test'
+      ...
+    # Subtest: the old behaviour is gone: signing one millisecond before expiry is refused
+    ok 6 - the old behaviour is gone: signing one millisecond before expiry is refused
+      ---
+      duration_ms: 0.091208
+      type: 'test'
+      ...
+    # Subtest: an already-broadcast payment is still searched for during the grace period
+    ok 7 - an already-broadcast payment is still searched for during the grace period
+      ---
+      duration_ms: 0.199291
+      type: 'test'
+      ...
+    # Subtest: countdowns never go negative
+    ok 8 - countdowns never go negative
+      ---
+      duration_ms: 0.268958
+      type: 'test'
+      ...
+    1..8
+ok 29 - the approval cutoff is earlier than the funding deadline
+  ---
+  duration_ms: 7.235625
+  type: 'suite'
+  ...
+# Subtest: the funding deadline is still the hard boundary
+    # Subtest: past it, nothing may be signed and the deadline is flagged
+    ok 1 - past it, nothing may be signed and the deadline is flagged
+      ---
+      duration_ms: 0.334334
+      type: 'test'
+      ...
+    1..1
+ok 30 - the funding deadline is still the hard boundary
+  ---
+  duration_ms: 0.717375
+  type: 'suite'
+  ...
+# Subtest: reconciliation window
+    # Subtest: searching continues past the cutoff
+    ok 1 - searching continues past the cutoff
+      ---
+      duration_ms: 0.19625
+      type: 'test'
+      ...
+    # Subtest: searching continues to the last millisecond of the window
+    ok 2 - searching continues to the last millisecond of the window
+      ---
+      duration_ms: 0.082542
+      type: 'test'
+      ...
+    # Subtest: searching stops at the end of the window
+    ok 3 - searching stops at the end of the window
+      ---
+      duration_ms: 0.070333
+      type: 'test'
+      ...
+    # Subtest: a zero reconciliation window degenerates to the old behaviour
+    ok 4 - a zero reconciliation window degenerates to the old behaviour
+      ---
+      duration_ms: 0.065208
+      type: 'test'
+      ...
+    1..4
+ok 31 - reconciliation window
+  ---
+  duration_ms: 0.547958
+  type: 'suite'
+  ...
+# Subtest: confirmation is not optional once a payment is proven
+    # Subtest: the first attempt happens even when proof lands after the window closed
+    ok 1 - the first attempt happens even when proof lands after the window closed
+      ---
+      duration_ms: 0.158209
+      type: 'test'
+      ...
+    # Subtest: the first attempt happens even long past every deadline
+    ok 2 - the first attempt happens even long past every deadline
+      ---
+      duration_ms: 0.411667
+      type: 'test'
+      ...
+    # Subtest: retries are bounded from the moment of proof, not from the window
+    ok 3 - retries are bounded from the moment of proof, not from the window
+      ---
+      duration_ms: 0.116792
+      type: 'test'
+      ...
+    # Subtest: every retryable status keeps retrying
+    ok 4 - every retryable status keeps retrying
+      ---
+      duration_ms: 0.103167
+      type: 'test'
+      ...
+    # Subtest: a terminal status stops the loop instead of burning the budget
+    ok 5 - a terminal status stops the loop instead of burning the budget
+      ---
+      duration_ms: 0.179875
+      type: 'test'
+      ...
+    # Subtest: success stops the loop
+    ok 6 - success stops the loop
+      ---
+      duration_ms: 0.125334
+      type: 'test'
+      ...
+    1..6
+ok 32 - confirmation is not optional once a payment is proven
+  ---
+  duration_ms: 1.252959
+  type: 'suite'
+  ...
+# Subtest: the server, not our clock, decides whether funds are still leasable
+    # Subtest: a healthy body reports not expired and fully verified
+    ok 1 - a healthy body reports not expired and fully verified
+      ---
+      duration_ms: 2.001542
+      type: 'test'
+      ...
+    # Subtest: the SLOT deadline is caught even though our clock says there is time
+    ok 2 - the SLOT deadline is caught even though our clock says there is time
+      ---
+      duration_ms: 0.241833
+      type: 'test'
+      ...
+    # Subtest: a missing transaction slot is unknown, not "not expired"
+    ok 3 - a missing transaction slot is unknown, not "not expired"
+      ---
+      duration_ms: 0.113459
+      type: 'test'
+      ...
+    # Subtest: a boolean that contradicts its own inputs is treated as expired
+    ok 4 - a boolean that contradicts its own inputs is treated as expired
+      ---
+      duration_ms: 0.154458
+      type: 'test'
+      ...
+    # Subtest: a late arrival is caught from the deadline field
+    ok 5 - a late arrival is caught from the deadline field
+      ---
+      duration_ms: 0.101042
+      type: 'test'
+      ...
+    # Subtest: the fallback arrival clock is reported but does not block
+    ok 6 - the fallback arrival clock is reported but does not block
+      ---
+      duration_ms: 0.068917
+      type: 'test'
+      ...
+    # Subtest: an empty or absent body is unverified, never a pass
+    ok 7 - an empty or absent body is unverified, never a pass
+      ---
+      duration_ms: 0.320084
+      type: 'test'
+      ...
+    1..7
+ok 33 - the server, not our clock, decides whether funds are still leasable
+  ---
+  duration_ms: 4.38525
+  type: 'suite'
+  ...
+# Subtest: recording a payment is not the same as the run succeeding
+    # Subtest: confirmed before both deadlines is recorded, executable and a success
+    ok 1 - confirmed before both deadlines is recorded, executable and a success
+      ---
+      duration_ms: 0.176
+      type: 'test'
+      ...
+    # Subtest: our own clock still fails closed even when the server looks happy
+    ok 2 - our own clock still fails closed even when the server looks happy
+      ---
+      duration_ms: 0.097583
+      type: 'test'
+      ...
+    # Subtest: confirmed at or after the deadline is recorded but NOT a success
+    ok 3 - confirmed at or after the deadline is recorded but NOT a success
+      ---
+      duration_ms: 0.159084
+      type: 'test'
+      ...
+    # Subtest: the expired case is not labelled as a success in the event stream
+    ok 4 - the expired case is not labelled as a success in the event stream
+      ---
+      duration_ms: 0.249292
+      type: 'test'
+      ...
+    # Subtest: anything other than budget_reserved is neither recorded nor a success
+    ok 5 - anything other than budget_reserved is neither recorded nor a success
+      ---
+      duration_ms: 0.118791
+      type: 'test'
+      ...
+    1..5
+ok 34 - recording a payment is not the same as the run succeeding
+  ---
+  duration_ms: 7.290709
+  type: 'suite'
+  ...
+# Subtest: the two halves of the approval gate agree on where it is
+    # Subtest: the signing page guard uses the same cutoff as the command line
+    ok 1 - the signing page guard uses the same cutoff as the command line
+      ---
+      duration_ms: 3.118042
+      type: 'test'
+      ...
+    1..1
+ok 35 - the two halves of the approval gate agree on where it is
+  ---
+  duration_ms: 3.188959
+  type: 'suite'
+  ...
+# Subtest: approval message
+    # Subtest: is byte-exact: six lines, \\n-joined, no trailing newline
+    ok 1 - is byte-exact: six lines, \\n-joined, no trailing newline
+      ---
+      duration_ms: 30.821125
+      type: 'test'
+      ...
+    # Subtest: is generated once: later changes to the review do not change it
+    ok 2 - is generated once: later changes to the review do not change it
+      ---
+      duration_ms: 1.204792
+      type: 'test'
+      ...
+    # Subtest: review text cannot inject extra lines into the signed message
+    ok 3 - review text cannot inject extra lines into the signed message
+      ---
+      duration_ms: 0.216292
+      type: 'test'
+      ...
+    # Subtest: a malformed hash, cluster or id refuses to build a hold
+    ok 4 - a malformed hash, cluster or id refuses to build a hold
+      ---
+      duration_ms: 0.503875
+      type: 'test'
+      ...
+    # Subtest: default ids are 12 random hex characters
+    ok 5 - default ids are 12 random hex characters
+      ---
+      duration_ms: 0.907459
+      type: 'test'
+      ...
+    1..5
+ok 36 - approval message
+  ---
+  duration_ms: 34.747959
+  type: 'suite'
+  ...
+# Subtest: verifyApproval
+    # Subtest: accepts the approver signing the exact message
+    ok 1 - accepts the approver signing the exact message
+      ---
+      duration_ms: 1.93125
+      type: 'test'
+      ...
+    # Subtest: rejects another key, a tampered message and a truncated signature
+    ok 2 - rejects another key, a tampered message and a truncated signature
+      ---
+      duration_ms: 1.704459
+      type: 'test'
+      ...
+    # Subtest: never throws on garbage
+    ok 3 - never throws on garbage
+      ---
+      duration_ms: 0.958375
+      type: 'test'
+      ...
+    1..3
+ok 37 - verifyApproval
+  ---
+  duration_ms: 5.188
+  type: 'suite'
+  ...
+# Subtest: HoldQueue
+    # Subtest: approver signature approves and resolves waitFor with the approval
+    ok 1 - approver signature approves and resolves waitFor with the approval
+      ---
+      duration_ms: 2.636125
+      type: 'test'
+      ...
+    # Subtest: a bad signature throws and leaves the hold pending
+    ok 2 - a bad signature throws and leaves the hold pending
+      ---
+      duration_ms: 28.589542
+      type: 'test'
+      ...
+    # Subtest: a signature for one hold does not approve another
+    ok 3 - a signature for one hold does not approve another
+      ---
+      duration_ms: 4.671875
+      type: 'test'
+      ...
+    # Subtest: no approver configured: no wallet approval succeeds
+    ok 4 - no approver configured: no wallet approval succeeds
+      ---
+      duration_ms: 3.264542
+      type: 'test'
+      ...
+    # Subtest: double approve ⇒ already_decided (409)
+    ok 5 - double approve ⇒ already_decided (409)
+      ---
+      duration_ms: 1.170709
+      type: 'test'
+      ...
+    # Subtest: approve after expiry ⇒ expired (410); waitFor resolved expired
+    ok 6 - approve after expiry ⇒ expired (410); waitFor resolved expired
+      ---
+      duration_ms: 0.694292
+      type: 'test'
+      ...
+    # Subtest: expiry is noticed on access, one millisecond before is still pending
+    ok 7 - expiry is noticed on access, one millisecond before is still pending
+      ---
+      duration_ms: 0.181084
+      type: 'test'
+      ...
+    # Subtest: the timer expires a hold nobody is looking at
+    ok 8 - the timer expires a hold nobody is looking at
+      ---
+      duration_ms: 28.1445
+      type: 'test'
+      ...
+    # Subtest: real timers: a short hold expires on its own
+    ok 9 - real timers: a short hold expires on its own
+      ---
+      duration_ms: 50.905209
+      type: 'test'
+      ...
+    # Subtest: reject resolves waiters with the reason
+    ok 10 - reject resolves waiters with the reason
+      ---
+      duration_ms: 1.734041
+      type: 'test'
+      ...
+    # Subtest: cancel resolves waiters with the reason; approval after cancel ⇒ 409
+    ok 11 - cancel resolves waiters with the reason; approval after cancel ⇒ 409
+      ---
+      duration_ms: 0.863625
+      type: 'test'
+      ...
+    # Subtest: cancelWhere cancels only the matching pending holds
+    ok 12 - cancelWhere cancels only the matching pending holds
+      ---
+      duration_ms: 0.269958
+      type: 'test'
+      ...
+    # Subtest: a throwing predicate cancels (fail closed)
+    ok 13 - a throwing predicate cancels (fail closed)
+      ---
+      duration_ms: 0.130833
+      type: 'test'
+      ...
+    # Subtest: unknown ids: get → null, approve/reject → 404, waitFor rejects
+    ok 14 - unknown ids: get → null, approve/reject → 404, waitFor rejects
+      ---
+      duration_ms: 0.2835
+      type: 'test'
+      ...
+    # Subtest: local-button approval: devnet only, recorded as insecure-local-button
+    ok 15 - local-button approval: devnet only, recorded as insecure-local-button
+      ---
+      duration_ms: 0.359334
+      type: 'test'
+      ...
+    # Subtest: snapshots cannot change the queue
+    ok 16 - snapshots cannot change the queue
+      ---
+      duration_ms: 0.139542
+      type: 'test'
+      ...
+    # Subtest: close cancels everything pending
+    ok 17 - close cancels everything pending
+      ---
+      duration_ms: 0.319416
+      type: 'test'
+      ...
+    1..17
+ok 38 - HoldQueue
+  ---
+  duration_ms: 125.391625
+  type: 'suite'
+  ...
+# Subtest: approval server
+    # Subtest: binds 127.0.0.1 and serves the page with the CSP header
+    ok 1 - binds 127.0.0.1 and serves the page with the CSP header
+      ---
+      duration_ms: 25.967541
+      type: 'test'
+      ...
+    # Subtest: lists pending holds with their approval message; BigInt becomes a string
+    ok 2 - lists pending holds with their approval message; BigInt becomes a string
+      ---
+      duration_ms: 9.541333
+      type: 'test'
+      ...
+    # Subtest: jsonReplacer turns BigInt into decimal strings
+    ok 3 - jsonReplacer turns BigInt into decimal strings
+      ---
+      duration_ms: 0.126416
+      type: 'test'
+      ...
+    # Subtest: the runtime approver signs the message ⇒ 200; waitFor resolves approved
+    ok 4 - the runtime approver signs the message ⇒ 200; waitFor resolves approved
+      ---
+      duration_ms: 5.171125
+      type: 'test'
+      ...
+    # Subtest: wrong key, tampered message, truncated signature ⇒ 400 and still pending
+    ok 5 - wrong key, tampered message, truncated signature ⇒ 400 and still pending
+      ---
+      duration_ms: 28.419917
+      type: 'test'
+      ...
+    # Subtest: double approve ⇒ 409
+    ok 6 - double approve ⇒ 409
+      ---
+      duration_ms: 3.265375
+      type: 'test'
+      ...
+    # Subtest: approve after expiry ⇒ 410 and waitFor resolved expired
+    ok 7 - approve after expiry ⇒ 410 and waitFor resolved expired
+      ---
+      duration_ms: 2.499875
+      type: 'test'
+      ...
+    # Subtest: unknown hold ⇒ 404
+    ok 8 - unknown hold ⇒ 404
+      ---
+      duration_ms: 5.64225
+      type: 'test'
+      ...
+    # Subtest: reject resolves the waiter; reject is allowed without a signature
+    ok 9 - reject resolves the waiter; reject is allowed without a signature
+      ---
+      duration_ms: 2.473875
+      type: 'test'
+      ...
+    # Subtest: a cancelled hold cannot be approved over HTTP (409)
+    ok 10 - a cancelled hold cannot be approved over HTTP (409)
+      ---
+      duration_ms: 39.700458
+      type: 'test'
+      ...
+    # Subtest: wrong Host ⇒ 403 (DNS rebinding)
+    ok 11 - wrong Host ⇒ 403 (DNS rebinding)
+      ---
+      duration_ms: 17.486125
+      type: 'test'
+      ...
+    # Subtest: foreign Origin ⇒ 403; own origin is fine
+    ok 12 - foreign Origin ⇒ 403; own origin is fine
+      ---
+      duration_ms: 8.321417
+      type: 'test'
+      ...
+    # Subtest: non-JSON POST ⇒ 415; bad JSON ⇒ 400; wrong verb ⇒ 405; huge body ⇒ 413
+    ok 13 - non-JSON POST ⇒ 415; bad JSON ⇒ 400; wrong verb ⇒ 405; huge body ⇒ 413
+      ---
+      duration_ms: 53.941375
+      type: 'test'
+      ...
+    # Subtest: local-button is refused on mainnet-beta at start
+    ok 14 - local-button is refused on mainnet-beta at start
+      ---
+      duration_ms: 1.121125
+      type: 'test'
+      ...
+    # Subtest: local-button on devnet approves as insecure-local-button
+    ok 15 - local-button on devnet approves as insecure-local-button
+      ---
+      duration_ms: 4.504958
+      type: 'test'
+      ...
+    # Subtest: local-button request in wallet-signature mode ⇒ 403, still pending
+    ok 16 - local-button request in wallet-signature mode ⇒ 403, still pending
+      ---
+      duration_ms: 1.913292
+      type: 'test'
+      ...
+    # Subtest: refuses to start with a missing, malformed or mismatched approver
+    ok 17 - refuses to start with a missing, malformed or mismatched approver
+      ---
+      duration_ms: 0.657
+      type: 'test'
+      ...
+    # Subtest: a busy port rejects the start promise instead of hanging
+    ok 18 - a busy port rejects the start promise instead of hanging
+      ---
+      duration_ms: 0.962541
+      type: 'test'
+      ...
+    1..18
+ok 39 - approval server
+  ---
+  duration_ms: 212.478583
+  type: 'suite'
+  ...
+# Subtest: approval page
+    # Subtest: loads no external resources and no inline script
+    ok 1 - loads no external resources and no inline script
+      ---
+      duration_ms: 1.069666
+      type: 'test'
+      ...
+    # Subtest: app.js parses, never writes HTML, and follows the Phantom flow
+    ok 2 - app.js parses, never writes HTML, and follows the Phantom flow
+      ---
+      duration_ms: 0.714166
+      type: 'test'
+      ...
+    1..2
+ok 40 - approval page
+  ---
+  duration_ms: 1.981791
+  type: 'suite'
+  ...
+# Subtest: approval page against the server (headless)
+    # Subtest: Approve with wallet: connect, signMessage(utf8), POST ⇒ approved
+    ok 1 - Approve with wallet: connect, signMessage(utf8), POST ⇒ approved
+      ---
+      duration_ms: 45.459292
+      type: 'test'
+      ...
+    # Subtest: a connected wallet that is not the approver is refused before signing
+    ok 2 - a connected wallet that is not the approver is refused before signing
+      ---
+      duration_ms: 30.268833
+      type: 'test'
+      ...
+    # Subtest: no Phantom: a clear error, hold still pending; Reject still works
+    ok 3 - no Phantom: a clear error, hold still pending; Reject still works
+      ---
+      duration_ms: 37.792
+      type: 'test'
+      ...
+    # Subtest: local-button mode shows a plain approve button
+    ok 4 - local-button mode shows a plain approve button
+      ---
+      duration_ms: 25.553
+      type: 'test'
+      ...
+    1..4
+ok 41 - approval page against the server (headless)
+  ---
+  duration_ms: 139.365
+  type: 'suite'
+  ...
+# Subtest: notifyHold
+    # Subtest: macOS: osascript notification with escaped text, then open the page
+    ok 1 - macOS: osascript notification with escaped text, then open the page
+      ---
+      duration_ms: 0.908292
+      type: 'test'
+      ...
+    # Subtest: escapeAppleScript neutralises quotes, backslashes and control characters
+    ok 2 - escapeAppleScript neutralises quotes, backslashes and control characters
+      ---
+      duration_ms: 0.13825
+      type: 'test'
+      ...
+    # Subtest: Linux: xdg-open only; other platforms: nothing; disabled: nothing
+    ok 3 - Linux: xdg-open only; other platforms: nothing; disabled: nothing
+      ---
+      duration_ms: 0.322875
+      type: 'test'
+      ...
+    # Subtest: only a loopback http URL is ever opened
+    ok 4 - only a loopback http URL is ever opened
+      ---
+      duration_ms: 0.791625
+      type: 'test'
+      ...
+    # Subtest: a nonexistent binary does not throw (and its async error is swallowed)
+    ok 5 - a nonexistent binary does not throw (and its async error is swallowed)
+      ---
+      duration_ms: 266.862541
+      type: 'test'
+      ...
+    # Subtest: a spawn that throws synchronously, or returns nothing, does not throw
+    ok 6 - a spawn that throws synchronously, or returns nothing, does not throw
+      ---
+      duration_ms: 0.477
+      type: 'test'
+      ...
+    1..6
+ok 42 - notifyHold
+  ---
+  duration_ms: 269.908125
+  type: 'suite'
+  ...
+# Subtest: A3 is a valid unsigned 0.5 SOL transfer from the reviewed wallet to the attacker
+ok 43 - A3 is a valid unsigned 0.5 SOL transfer from the reviewed wallet to the attacker
+  ---
+  duration_ms: 43.043958
+  type: 'test'
+  ...
+# Subtest: A4 is a valid SPL approve with the reviewed wallet as authority
+ok 44 - A4 is a valid SPL approve with the reviewed wallet as authority
+  ---
+  duration_ms: 13.23625
+  type: 'test'
+  ...
+# Subtest: A5 requires rpc_send_refused plus unsolicited_send in this run
+ok 45 - A5 requires rpc_send_refused plus unsolicited_send in this run
+  ---
+  duration_ms: 10.001583
+  type: 'test'
+  ...
+# Subtest: hermetic attack command completes six PASS rows without skips
+ok 46 - hermetic attack command completes six PASS rows without skips
+  ---
+  duration_ms: 7682.978292
+  type: 'test'
+  ...
+# Subtest: human mode uses supplied config, custom env names and its upstream/audit without changing the file
+ok 47 - human mode uses supplied config, custom env names and its upstream/audit without changing the file
+  ---
+  duration_ms: 7200.572458
+  type: 'test'
+  ...
+# Subtest: AuditLog
+    # Subtest: N appends verify; seq = line number; first prev is 64 zeros
+    ok 1 - N appends verify; seq = line number; first prev is 64 zeros
+      ---
+      duration_ms: 5.694458
+      type: 'test'
+      ...
+    # Subtest: re-open continues seq and prev
+    ok 2 - re-open continues seq and prev
+      ---
+      duration_ms: 0.647584
+      type: 'test'
+      ...
+    # Subtest: flipping one byte anywhere names that line
+    ok 3 - flipping one byte anywhere names that line
+      ---
+      duration_ms: 112.502833
+      type: 'test'
+      ...
+    # Subtest: deleting, reordering or truncating lines is detected
+    ok 4 - deleting, reordering or truncating lines is detected
+      ---
+      duration_ms: 3.531083
+      type: 'test'
+      ...
+    # Subtest: opening a broken log -> exit 2 naming the first bad line
+    ok 5 - opening a broken log -> exit 2 naming the first bad line
+      ---
+      duration_ms: 1.647208
+      type: 'test'
+      ...
+    # Subtest: BigInt becomes a decimal string; reserved fields are refused
+    ok 6 - BigInt becomes a decimal string; reserved fields are refused
+      ---
+      duration_ms: 1.153625
+      type: 'test'
+      ...
+    # Subtest: secrets are redacted before hashing, in keys and values
+    ok 7 - secrets are redacted before hashing, in keys and values
+      ---
+      duration_ms: 1.422209
+      type: 'test'
+      ...
+    # Subtest: a record whose serialisation still contains a secret is not written
+    ok 8 - a record whose serialisation still contains a secret is not written
+      ---
+      duration_ms: 2.426459
+      type: 'test'
+      ...
+    1..8
+ok 48 - AuditLog
+  ---
+  duration_ms: 130.386167
+  type: 'suite'
+  ...
+# Subtest: scrubArgs
+    # Subtest: strings over 200 chars become { sha256, length }; others pass
+    ok 1 - strings over 200 chars become { sha256, length }; others pass
+      ---
+      duration_ms: 0.517541
+      type: 'test'
+      ...
+    1..1
+ok 49 - scrubArgs
+  ---
+  duration_ms: 0.82
+  type: 'suite'
+  ...
+# Subtest: document mode is unchanged
+    # Subtest: extractClaims still finds signatures in an acceptance document
+    ok 1 - extractClaims still finds signatures in an acceptance document
+      ---
+      duration_ms: 7.130458
+      type: 'test'
+      ...
+    1..1
+ok 50 - document mode is unchanged
+  ---
+  duration_ms: 7.790209
+  type: 'suite'
+  ...
+# Subtest: chain
+    # Subtest: a generated log verifies: chain · N records · PASS
+    ok 1 - a generated log verifies: chain · N records · PASS
+      ---
+      duration_ms: 7.159292
+      type: 'test'
+      ...
+    # Subtest: a one-byte edit on any line FAILs at that line
+    ok 2 - a one-byte edit on any line FAILs at that line
+      ---
+      duration_ms: 4.074709
+      type: 'test'
+      ...
+    # Subtest: records from the first bad line on are not read
+    ok 3 - records from the first bad line on are not read
+      ---
+      duration_ms: 2.75925
+      type: 'test'
+      ...
+    # Subtest: an edit after the send still lets the verified prefix be checked
+    ok 4 - an edit after the send still lets the verified prefix be checked
+      ---
+      duration_ms: 2.246375
+      type: 'test'
+      ...
+    # Subtest: CRLF line endings (git autocrlf checkout) still verify, and are reported
+    ok 5 - CRLF line endings (git autocrlf checkout) still verify, and are reported
+      ---
+      duration_ms: 2.833083
+      type: 'test'
+      ...
+    1..5
+ok 51 - chain
+  ---
+  duration_ms: 20.36325
+  type: 'suite'
+  ...
+# Subtest: ledger re-derivation with an injected fake RPC
+    # Subtest: matching message, err null ⇒ PASS; the tool result with the same signature is reported once
+    ok 1 - matching message, err null ⇒ PASS; the tool result with the same signature is reported once
+      ---
+      duration_ms: 1.982791
+      type: 'test'
+      ...
+    # Subtest: --commitment confirmed is passed through
+    ok 2 - --commitment confirmed is passed through
+      ---
+      duration_ms: 26.748292
+      type: 'test'
+      ...
+    # Subtest: tool-argument review (callId link, no checkpoint send) ⇒ PASS
+    ok 3 - tool-argument review (callId link, no checkpoint send) ⇒ PASS
+      ---
+      duration_ms: 6.674708
+      type: 'test'
+      ...
+    # Subtest: different message on chain ⇒ FAIL
+    ok 4 - different message on chain ⇒ FAIL
+      ---
+      duration_ms: 3.070583
+      type: 'test'
+      ...
+    # Subtest: meta.err ⇒ FAIL
+    ok 5 - meta.err ⇒ FAIL
+      ---
+      duration_ms: 2.011166
+      type: 'test'
+      ...
+    # Subtest: missing status metadata, or meta without an err field ⇒ FAIL (success cannot be shown)
+    ok 6 - missing status metadata, or meta without an err field ⇒ FAIL (success cannot be shown)
+      ---
+      duration_ms: 4.966625
+      type: 'test'
+      ...
+    # Subtest: missing on chain ⇒ FAIL
+    ok 7 - missing on chain ⇒ FAIL
+      ---
+      duration_ms: 1.231792
+      type: 'test'
+      ...
+    # Subtest: an RPC error ⇒ FAIL, never a pass
+    ok 8 - an RPC error ⇒ FAIL, never a pass
+      ---
+      duration_ms: 1.248542
+      type: 'test'
+      ...
+    # Subtest: an RPC that answers with a different transaction ⇒ FAIL
+    ok 9 - an RPC that answers with a different transaction ⇒ FAIL
+      ---
+      duration_ms: 5.09225
+      type: 'test'
+      ...
+    # Subtest: ledger bytes that do not decode ⇒ FAIL
+    ok 10 - ledger bytes that do not decode ⇒ FAIL
+      ---
+      duration_ms: 2.18725
+      type: 'test'
+      ...
+    # Subtest: no RPC ⇒ UNVERIFIED, which is reported but does not fail the audit
+    ok 11 - no RPC ⇒ UNVERIFIED, which is reported but does not fail the audit
+      ---
+      duration_ms: 1.187208
+      type: 'test'
+      ...
+    # Subtest: every distinct signature is checked once, in log order
+    ok 12 - every distinct signature is checked once, in log order
+      ---
+      duration_ms: 5.189
+      type: 'test'
+      ...
+    1..12
+ok 52 - ledger re-derivation with an injected fake RPC
+  ---
+  duration_ms: 63.298167
+  type: 'suite'
+  ...
+# Subtest: linking a signature to the approved message
+    # Subtest: a tool result with a signature Gate never reviewed ⇒ UNVERIFIED, and no RPC call
+    ok 1 - a tool result with a signature Gate never reviewed ⇒ UNVERIFIED, and no RPC call
+      ---
+      duration_ms: 1.622875
+      type: 'test'
+      ...
+    # Subtest: a later call that only mentions a forwarded signature does not add a row
+    ok 2 - a later call that only mentions a forwarded signature does not add a row
+      ---
+      duration_ms: 1.964333
+      type: 'test'
+      ...
+    # Subtest: two reviewed calls returning one signature must have approved the same message
+    ok 3 - two reviewed calls returning one signature must have approved the same message
+      ---
+      duration_ms: 8.3095
+      type: 'test'
+      ...
+    # Subtest: one message reviewed twice (tool argument, then at the checkpoint) ⇒ PASS
+    ok 4 - one message reviewed twice (tool argument, then at the checkpoint) ⇒ PASS
+      ---
+      duration_ms: 4.809084
+      type: 'test'
+      ...
+    # Subtest: a send forwarded with no approval on record ⇒ FAIL, even without an RPC (I2)
+    ok 5 - a send forwarded with no approval on record ⇒ FAIL, even without an RPC (I2)
+      ---
+      duration_ms: 1.345458
+      type: 'test'
+      ...
+    # Subtest: a send whose hold was rejected, not approved ⇒ FAIL
+    ok 6 - a send whose hold was rejected, not approved ⇒ FAIL
+      ---
+      duration_ms: 1.21775
+      type: 'test'
+      ...
+    # Subtest: an approval logged after the forward ⇒ FAIL (I6)
+    ok 7 - an approval logged after the forward ⇒ FAIL (I6)
+      ---
+      duration_ms: 6.75175
+      type: 'test'
+      ...
+    # Subtest: a review with verdict "deny" cannot back an approval
+    ok 8 - a review with verdict "deny" cannot back an approval
+      ---
+      duration_ms: 1.267958
+      type: 'test'
+      ...
+    # Subtest: two held reviews under one id: ambiguous ⇒ FAIL, unless the hold states its hash
+    ok 9 - two held reviews under one id: ambiguous ⇒ FAIL, unless the hold states its hash
+      ---
+      duration_ms: 3.153791
+      type: 'test'
+      ...
+    # Subtest: hold records that disagree on the hash ⇒ FAIL
+    ok 10 - hold records that disagree on the hash ⇒ FAIL
+      ---
+      duration_ms: 1.508666
+      type: 'test'
+      ...
+    # Subtest: a malformed signature: FAIL when Gate forwarded it, UNVERIFIED when a tool result carried it
+    ok 11 - a malformed signature: FAIL when Gate forwarded it, UNVERIFIED when a tool result carried it
+      ---
+      duration_ms: 1.6715
+      type: 'test'
+      ...
+    # Subtest: rpc_send_forwarded without a sendId or a signature ⇒ FAIL
+    ok 12 - rpc_send_forwarded without a sendId or a signature ⇒ FAIL
+      ---
+      duration_ms: 1.997542
+      type: 'test'
+      ...
+    # Subtest: the approver signature in hold_approved is never mistaken for a transaction
+    ok 13 - the approver signature in hold_approved is never mistaken for a transaction
+      ---
+      duration_ms: 1.052542
+      type: 'test'
+      ...
+    1..13
+ok 53 - linking a signature to the approved message
+  ---
+  duration_ms: 37.143291
+  type: 'suite'
+  ...
+# Subtest: sfcli audit --log
+    # Subtest: chain only when SFGATE_UPSTREAM_RPC_URL is unset: exit 0, rows PASS and UNVERIFIED
+    ok 1 - chain only when SFGATE_UPSTREAM_RPC_URL is unset: exit 0, rows PASS and UNVERIFIED
+      ---
+      duration_ms: 282.216125
+      type: 'test'
+      ...
+    # Subtest: --json prints one JSON document with the rows
+    ok 2 - --json prints one JSON document with the rows
+      ---
+      duration_ms: 222.515166
+      type: 'test'
+      ...
+    # Subtest: a one-byte edit: exit 1 and the line is named
+    ok 3 - a one-byte edit: exit 1 and the line is named
+      ---
+      duration_ms: 301.087125
+      type: 'test'
+      ...
+    # Subtest: against the fake upstream: PASS exit 0, and the URL never appears (I4)
+    ok 4 - against the fake upstream: PASS exit 0, and the URL never appears (I4)
+      ---
+      duration_ms: 540.796625
+      type: 'test'
+      ...
+    # Subtest: --rpc-env names another variable; a failed transaction exits 1
+    ok 5 - --rpc-env names another variable; a failed transaction exits 1
+      ---
+      duration_ms: 247.468542
+      type: 'test'
+      ...
+    # Subtest: RPC failures are FAIL rows with the URL scrubbed (unreachable and unparsable URLs)
+    ok 6 - RPC failures are FAIL rows with the URL scrubbed (unreachable and unparsable URLs)
+      ---
+      duration_ms: 441.76675
+      type: 'test'
+      ...
+    # Subtest: usage errors exit 2 before any RPC: bad commitment, both modes, missing, empty or directory file
+    ok 7 - usage errors exit 2 before any RPC: bad commitment, both modes, missing, empty or directory file
+      ---
+      duration_ms: 1011.091458
+      type: 'test'
+      ...
+    # Subtest: --rpc-env given a URL instead of a name: exit 2 without echoing it
+    ok 8 - --rpc-env given a URL instead of a name: exit 2 without echoing it
+      ---
+      duration_ms: 147.14725
+      type: 'test'
+      ...
+    # Subtest: --rpc-env naming an unset variable is refused, not downgraded to chain-only
+    ok 9 - --rpc-env naming an unset variable is refused, not downgraded to chain-only
+      ---
+      duration_ms: 161.16625
+      type: 'test'
+      ...
+    1..9
+ok 54 - sfcli audit --log
+  ---
+  duration_ms: 3366.523125
+  type: 'suite'
+  ...
+# Subtest: loadGateConfig
+    # Subtest: a minimal config loads with defaults, frozen
+    ok 1 - a minimal config loads with defaults, frozen
+      ---
+      duration_ms: 4.581959
+      type: 'test'
+      ...
+    # Subtest: secret-like key at any depth -> exit 2 (GuardrailError)
+    ok 2 - secret-like key at any depth -> exit 2 (GuardrailError)
+      ---
+      duration_ms: 6.378916
+      type: 'test'
+      ...
+    # Subtest: values may NAME secret variables
+    ok 3 - values may NAME secret variables
+      ---
+      duration_ms: 2.238375
+      type: 'test'
+      ...
+    # Subtest: unknown top-level key -> exit 2; unknown server key -> exit 2
+    ok 4 - unknown top-level key -> exit 2; unknown server key -> exit 2
+      ---
+      duration_ms: 1.851875
+      type: 'test'
+      ...
+    # Subtest: _comment keys are ignored at every level
+    ok 5 - _comment keys are ignored at every level
+      ---
+      duration_ms: 1.122875
+      type: 'test'
+      ...
+    # Subtest: bad server name -> exit 2
+    ok 6 - bad server name -> exit 2
+      ---
+      duration_ms: 3.074916
+      type: 'test'
+      ...
+    # Subtest: gate server name is reserved so downstreams cannot shadow gate__status
+    ok 7 - gate server name is reserved so downstreams cannot shadow gate__status
+      ---
+      duration_ms: 1.735417
+      type: 'test'
+      ...
+    # Subtest: missing env var named by the config -> exit 2
+    ok 8 - missing env var named by the config -> exit 2
+      ---
+      duration_ms: 1.650875
+      type: 'test'
+      ...
+    # Subtest: timeoutMs below (approval.timeoutSec + 30) x 1000 -> exit 2
+    ok 9 - timeoutMs below (approval.timeoutSec + 30) x 1000 -> exit 2
+      ---
+      duration_ms: 1.716834
+      type: 'test'
+      ...
+    # Subtest: cluster, approver, local-button, env collisions, placeholders
+    ok 10 - cluster, approver, local-button, env collisions, placeholders
+      ---
+      duration_ms: 7.220417
+      type: 'test'
+      ...
+    # Subtest: unparseable or missing file -> exit 2
+    ok 11 - unparseable or missing file -> exit 2
+      ---
+      duration_ms: 0.82375
+      type: 'test'
+      ...
+    # Subtest: relative cwd and audit.path resolve against the config directory
+    ok 12 - relative cwd and audit.path resolve against the config directory
+      ---
+      duration_ms: 0.602542
+      type: 'test'
+      ...
+    1..12
+ok 55 - loadGateConfig
+  ---
+  duration_ms: 34.508583
+  type: 'suite'
+  ...
+# Subtest: examples/sfgate.*.example.json
+    # Subtest: sfgate.devnet.example.json: placeholders fail, runtime values load
+    ok 1 - sfgate.devnet.example.json: placeholders fail, runtime values load
+      ---
+      duration_ms: 1.459125
+      type: 'test'
+      ...
+    # Subtest: sfgate.mainnet-jupiter.example.json: placeholders fail, runtime values load
+    ok 2 - sfgate.mainnet-jupiter.example.json: placeholders fail, runtime values load
+      ---
+      duration_ms: 1.083375
+      type: 'test'
+      ...
+    1..2
+ok 56 - examples/sfgate.*.example.json
+  ---
+  duration_ms: 2.649
+  type: 'suite'
+  ...
+# Subtest: resolveUpstream
+    # Subtest: https derives wss; never stored
+    ok 1 - https derives wss; never stored
+      ---
+      duration_ms: 0.234291
+      type: 'test'
+      ...
+    # Subtest: http allowed only on loopback; errors never contain the URL
+    ok 2 - http allowed only on loopback; errors never contain the URL
+      ---
+      duration_ms: 0.198125
+      type: 'test'
+      ...
+    # Subtest: explicit ws var must be wss (ws only on loopback)
+    ok 3 - explicit ws var must be wss (ws only on loopback)
+      ---
+      duration_ms: 0.087958
+      type: 'test'
+      ...
+    1..3
+ok 57 - resolveUpstream
+  ---
+  duration_ms: 0.728291
+  type: 'suite'
+  ...
+# Subtest: loadPettyCash
+    # Subtest: loads a Solana CLI keypair; secret hidden from JSON
+    ok 1 - loads a Solana CLI keypair; secret hidden from JSON
+      ---
+      duration_ms: 2.009375
+      type: 'test'
+      ...
+    # Subtest: missing or malformed file -> exit 2, path not in the message
+    ok 2 - missing or malformed file -> exit 2, path not in the message
+      ---
+      duration_ms: 2.336791
+      type: 'test'
+      ...
+    1..2
+ok 58 - loadPettyCash
+  ---
+  duration_ms: 4.426167
+  type: 'suite'
+  ...
+# Subtest: createRedactor
+    # Subtest: upstream URL, derived ws URL and petty-cash secret are redacted in every form
+    ok 1 - upstream URL, derived ws URL and petty-cash secret are redacted in every form
+      ---
+      duration_ms: 2.605625
+      type: 'test'
+      ...
+    # Subtest: short values are ignored (no redaction storms)
+    ok 2 - short values are ignored (no redaction storms)
+      ---
+      duration_ms: 0.216458
+      type: 'test'
+      ...
+    1..2
+ok 59 - createRedactor
+  ---
+  duration_ms: 2.901083
+  type: 'suite'
+  ...
+# Subtest: base58
+    # Subtest: round trips with leading zeros
+    ok 1 - round trips with leading zeros
+      ---
+      duration_ms: 0.211875
+      type: 'test'
+      ...
+    1..1
+ok 60 - base58
+  ---
+  duration_ms: 0.265458
+  type: 'suite'
+  ...
+# Subtest: McpSession additions
+    # Subtest: defaults are unchanged: --db is appended and env is sanitized
+    ok 1 - defaults are unchanged: --db is appended and env is sanitized
+      ---
+      duration_ms: 190.514791
+      type: 'test'
+      ...
+    # Subtest: appendDb false, stripEnv, extraEnv and cwd reach the child
+    ok 2 - appendDb false, stripEnv, extraEnv and cwd reach the child
+      ---
+      duration_ms: 135.428417
+      type: 'test'
+      ...
+    # Subtest: stripChildEnv matches names case-insensitively and RegExps
+    ok 3 - stripChildEnv matches names case-insensitively and RegExps
+      ---
+      duration_ms: 0.830666
+      type: 'test'
+      ...
+    # Subtest: callToolRaw returns the raw result and throws TransportError on a JSON-RPC error
+    ok 4 - callToolRaw returns the raw result and throws TransportError on a JSON-RPC error
+      ---
+      duration_ms: 255.6335
+      type: 'test'
+      ...
+    # Subtest: a server->client request is answered with -32601 instead of hanging
+    ok 5 - a server->client request is answered with -32601 instead of hanging
+      ---
+      duration_ms: 136.673917
+      type: 'test'
+      ...
+    1..5
+ok 61 - McpSession additions
+  ---
+  duration_ms: 720.279333
+  type: 'suite'
+  ...
+# Subtest: host server
+    # Subtest: initialize echoes a supported protocol version, else 2025-06-18
+    ok 1 - initialize echoes a supported protocol version, else 2025-06-18
+      ---
+      duration_ms: 2.545667
+      type: 'test'
+      ...
+    # Subtest: ping -> {}; unknown method -> -32601; empty lists; notifications get nothing
+    ok 2 - ping -> {}; unknown method -> -32601; empty lists; notifications get nothing
+      ---
+      duration_ms: 1.803917
+      type: 'test'
+      ...
+    # Subtest: malformed line -> -32700 with id null, and the server keeps going
+    ok 3 - malformed line -> -32700 with id null, and the server keeps going
+      ---
+      duration_ms: 2.468708
+      type: 'test'
+      ...
+    # Subtest: response strings are redacted before JSON escaping changes a URL
+    ok 4 - response strings are redacted before JSON escaping changes a URL
+      ---
+      duration_ms: 1.931166
+      type: 'test'
+      ...
+    # Subtest: calls run concurrently; a cancelled request gets no response
+    ok 5 - calls run concurrently; a cancelled request gets no response
+      ---
+      duration_ms: 103.296125
+      type: 'test'
+      ...
+    1..5
+ok 62 - host server
+  ---
+  duration_ms: 112.817042
+  type: 'suite'
+  ...
+# Subtest: downstreams
+    # Subtest: env: rpcVar, walletVar, no SFGATE_*, no config-named var, no blocked var; node = execPath
+    ok 1 - env: rpcVar, walletVar, no SFGATE_*, no config-named var, no blocked var; node = execPath
+      ---
+      duration_ms: 292.123084
+      type: 'test'
+      ...
+    # Subtest: a downstream that fails to start is recorded; the others keep working
+    ok 2 - a downstream that fails to start is recorded; the others keep working
+      ---
+      duration_ms: 129.36175
+      type: 'test'
+      ...
+    # Subtest: tool names that are not host-safe are skipped; splitToolName
+    ok 3 - tool names that are not host-safe are skipped; splitToolName
+      ---
+      duration_ms: 128.155709
+      type: 'test'
+      ...
+    1..3
+ok 63 - downstreams
+  ---
+  duration_ms: 549.999625
+  type: 'suite'
+  ...
+# Subtest: gate run (stdio round trip)
+    # Subtest: host -> gate -> fake server: initialize, tools/list, tools/call verbatim; stdout is pure JSON-RPC
+    ok 1 - host -> gate -> fake server: initialize, tools/list, tools/call verbatim; stdout is pure JSON-RPC
+      ---
+      duration_ms: 474.253709
+      type: 'test'
+      ...
+    # Subtest: secrets that reach stderr or a tool result come out redacted
+    ok 2 - secrets that reach stderr or a tool result come out redacted
+      ---
+      duration_ms: 377.404833
+      type: 'test'
+      ...
+    # Subtest: missing env var named by the config -> exit 2, clear stderr, no child spawned
+    ok 3 - missing env var named by the config -> exit 2, clear stderr, no child spawned
+      ---
+      duration_ms: 189.755042
+      type: 'test'
+      ...
+    # Subtest: exit 2 before spawning: guardrail, missing petty-cash file, timeoutMs, broken audit log
+    ok 4 - exit 2 before spawning: guardrail, missing petty-cash file, timeoutMs, broken audit log
+      ---
+      duration_ms: 1006.742416
+      type: 'test'
+      ...
+    1..4
+ok 64 - gate run (stdio round trip)
+  ---
+  duration_ms: 2048.508
+  type: 'suite'
+  ...
+# Subtest: Gate pipeline hermetic E2E
+    # Subtest: allowlisted transfer holds once, approves exact message, sends once and audits the actual log
+    ok 1 - allowlisted transfer holds once, approves exact message, sends once and audits the actual log
+      ---
+      duration_ms: 1136.722083
+      type: 'test'
+      ...
+    # Subtest: sign_and_send drain is refused during tool-argument review before any hold or send
+    ok 2 - sign_and_send drain is refused during tool-argument review before any hold or send
+      ---
+      duration_ms: 499.172334
+      type: 'test'
+      ...
+    # Subtest: approval timeout expires the checkpoint hold and forwards nothing
+    ok 3 - approval timeout expires the checkpoint hold and forwards nothing
+      ---
+      duration_ms: 2513.525792
+      type: 'test'
+      ...
+    # Subtest: a wrong approver stays pending until timeout and never broadcasts
+    ok 4 - a wrong approver stays pending until timeout and never broadcasts
+      ---
+      duration_ms: 2428.333375
+      type: 'test'
+      ...
+    # Subtest: a --rogue wallet send with no host call is refused before review
+    ok 5 - a --rogue wallet send with no host call is refused before review
+      ---
+      duration_ms: 5417.899
+      type: 'test'
+      ...
+    # Subtest: host cancellation settles its checkpoint hold, rejects late approval and sends nothing
+    ok 6 - host cancellation settles its checkpoint hold, rejects late approval and sends nothing
+      ---
+      duration_ms: 450.980667
+      type: 'test'
+      ...
+    # Subtest: a safe tool argument is approved before downstream signing, then reviewed and approved at the checkpoint
+    ok 7 - a safe tool argument is approved before downstream signing, then reviewed and approved at the checkpoint
+      ---
+      duration_ms: 690.176917
+      type: 'test'
+      ...
+    # Subtest: an occupied approval port exits 2 and identifies the port
+    ok 8 - an occupied approval port exits 2 and identifies the port
+      ---
+      duration_ms: 176.276
+      type: 'test'
+      ...
+    # Subtest: an occupied checkpoint port exits 2 and identifies the port
+    ok 9 - an occupied checkpoint port exits 2 and identifies the port
+      ---
+      duration_ms: 178.773542
+      type: 'test'
+      ...
+    # Subtest: an occupied websocket port exits 2 and identifies the port
+    ok 10 - an occupied websocket port exits 2 and identifies the port
+      ---
+      duration_ms: 191.125375
+      type: 'test'
+      ...
+    1..10
+ok 65 - Gate pipeline hermetic E2E
+  ---
+  duration_ms: 13684.842
+  type: 'suite'
+  ...
+# Subtest: fake ledger returns accepted wire bytes but preserves explicit transaction nulls and results
+ok 66 - fake ledger returns accepted wire bytes but preserves explicit transaction nulls and results
+  ---
+  duration_ms: 12.452
+  type: 'test'
+  ...
+# Subtest: result signatures come only from the documented parsed JSON fields and the exact result is hashed
+ok 67 - result signatures come only from the documented parsed JSON fields and the exact result is hashed
+  ---
+  duration_ms: 0.819917
+  type: 'test'
+  ...
+# Subtest: a runtime secret echoed in a memo is scrubbed from reviews, holds and approval HTTP views
+ok 68 - a runtime secret echoed in a memo is scrubbed from reviews, holds and approval HTTP views
+  ---
+  duration_ms: 25.322917
+  type: 'test'
+  ...
+# Subtest: new holds dispatch the configured notification and browser options exactly once
+ok 69 - new holds dispatch the configured notification and browser options exactly once
+  ---
+  duration_ms: 90.106583
+  type: 'test'
+  ...
+# Subtest: cancelling during checkpoint review creates no approvable orphan
+ok 70 - cancelling during checkpoint review creates no approvable orphan
+  ---
+  duration_ms: 1.167667
+  type: 'test'
+  ...
+# Subtest: cancelling during tool-argument review creates no approvable orphan
+ok 71 - cancelling during tool-argument review creates no approvable orphan
+  ---
+  duration_ms: 1.231667
+  type: 'test'
+  ...
+# Subtest: host abort immediately after a valid approval refuses the send
+ok 72 - host abort immediately after a valid approval refuses the send
+  ---
+  duration_ms: 23.052292
+  type: 'test'
+  ...
+# Subtest: checkpoint abort immediately after a valid approval refuses the send
+ok 73 - checkpoint abort immediately after a valid approval refuses the send
+  ---
+  duration_ms: 22.867709
+  type: 'test'
+  ...
+# Subtest: compileTxPolicy
+    # Subtest: defaults are the fail-closed ones
+    ok 1 - defaults are the fail-closed ones
+      ---
+      duration_ms: 2.315584
+      type: 'test'
+      ...
+    # Subtest: the example tx sections compile; a placeholder in the destinations list is refused
+    ok 2 - the example tx sections compile; a placeholder in the destinations list is refused
+      ---
+      duration_ms: 35.541334
+      type: 'test'
+      ...
+    # Subtest: caps are exact decimals: numbers, decimal strings and exponent forms
+    ok 3 - caps are exact decimals: numbers, decimal strings and exponent forms
+      ---
+      duration_ms: 5.04275
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): tx not an object
+    ok 4 - load-time error (exit 2): tx not an object
+      ---
+      duration_ms: 0.1655
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): unknown key
+    ok 5 - load-time error (exit 2): unknown key
+      ---
+      duration_ms: 0.105833
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): invalid program address
+    ok 6 - load-time error (exit 2): invalid program address
+      ---
+      duration_ms: 0.440166
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): programs not an array
+    ok 7 - load-time error (exit 2): programs not an array
+      ---
+      duration_ms: 0.462666
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): missing SOL cap
+    ok 8 - load-time error (exit 2): missing SOL cap
+      ---
+      duration_ms: 0.952125
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): no maxOutflow at all
+    ok 9 - load-time error (exit 2): no maxOutflow at all
+      ---
+      duration_ms: 0.805625
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): invalid mint key
+    ok 10 - load-time error (exit 2): invalid mint key
+      ---
+      duration_ms: 1.652625
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): wrapped SOL capped separately
+    ok 11 - load-time error (exit 2): wrapped SOL capped separately
+      ---
+      duration_ms: 0.982208
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): negative cap
+    ok 12 - load-time error (exit 2): negative cap
+      ---
+      duration_ms: 0.493292
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): NaN cap
+    ok 13 - load-time error (exit 2): NaN cap
+      ---
+      duration_ms: 0.158417
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): Infinity cap
+    ok 14 - load-time error (exit 2): Infinity cap
+      ---
+      duration_ms: 0.078
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): exponent string cap
+    ok 15 - load-time error (exit 2): exponent string cap
+      ---
+      duration_ms: 0.229708
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): signed string cap
+    ok 16 - load-time error (exit 2): signed string cap
+      ---
+      duration_ms: 0.075417
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): boolean cap
+    ok 17 - load-time error (exit 2): boolean cap
+      ---
+      duration_ms: 0.064125
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): destinations list missing
+    ok 18 - load-time error (exit 2): destinations list missing
+      ---
+      duration_ms: 0.141875
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): destinations without @
+    ok 19 - load-time error (exit 2): destinations without @
+      ---
+      duration_ms: 0.151166
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): destinations array with a bad address
+    ok 20 - load-time error (exit 2): destinations array with a bad address
+      ---
+      duration_ms: 0.103916
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): destinations of the wrong type
+    ok 21 - load-time error (exit 2): destinations of the wrong type
+      ---
+      duration_ms: 0.060167
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): unknownProgram enum
+    ok 22 - load-time error (exit 2): unknownProgram enum
+      ---
+      duration_ms: 1.172792
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): unknownMintOutflow enum
+    ok 23 - load-time error (exit 2): unknownMintOutflow enum
+      ---
+      duration_ms: 1.185875
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): approval enum
+    ok 24 - load-time error (exit 2): approval enum
+      ---
+      duration_ms: 0.094208
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): delegation flag type
+    ok 25 - load-time error (exit 2): delegation flag type
+      ---
+      duration_ms: 0.616375
+      type: 'test'
+      ...
+    # Subtest: load-time error (exit 2): legacy flag type
+    ok 26 - load-time error (exit 2): legacy flag type
+      ---
+      duration_ms: 0.112583
+      type: 'test'
+      ...
+    # Subtest: the list a destinations reference names is validated; comment keys are ignored
+    ok 27 - the list a destinations reference names is validated; comment keys are ignored
+      ---
+      duration_ms: 0.688542
+      type: 'test'
+      ...
+    1..27
+ok 74 - compileTxPolicy
+  ---
+  duration_ms: 62.923208
+  type: 'suite'
+  ...
+# Subtest: exact amount math
+    # Subtest: formatUnits trims and never rounds
+    ok 1 - formatUnits trims and never rounds
+      ---
+      duration_ms: 0.096
+      type: 'test'
+      ...
+    # Subtest: compareToCap is exact at the boundary
+    ok 2 - compareToCap is exact at the boundary
+      ---
+      duration_ms: 0.125333
+      type: 'test'
+      ...
+    # Subtest: no floats in the amount path: the sources never parse or coerce amounts to Number
+    ok 3 - no floats in the amount path: the sources never parse or coerce amounts to Number
+      ---
+      duration_ms: 0.548084
+      type: 'test'
+      ...
+    1..3
+ok 75 - exact amount math
+  ---
+  duration_ms: 0.874667
+  type: 'suite'
+  ...
+# Subtest: reviewTransaction: stage 1, decode
+    # Subtest: garbage bytes ⇒ tx_decode_failed, deny, and no RPC call at all
+    ok 1 - garbage bytes ⇒ tx_decode_failed, deny, and no RPC call at all
+      ---
+      duration_ms: 2.943959
+      type: 'test'
+      ...
+    # Subtest: bytes that are not a Uint8Array (e.g. the base64 text itself) ⇒ tx_decode_failed
+    ok 2 - bytes that are not a Uint8Array (e.g. the base64 text itself) ⇒ tx_decode_failed
+      ---
+      duration_ms: 0.601958
+      type: 'test'
+      ...
+    # Subtest: a recognised instruction with short data ⇒ tx_decode_failed, never simulated
+    ok 3 - a recognised instruction with short data ⇒ tx_decode_failed, never simulated
+      ---
+      duration_ms: 2.365417
+      type: 'test'
+      ...
+    # Subtest: v0: a destination that lives in a lookup table is resolved and checked
+    ok 4 - v0: a destination that lives in a lookup table is resolved and checked
+      ---
+      duration_ms: 3.277792
+      type: 'test'
+      ...
+    # Subtest: v0: a lookup table that does not exist ⇒ tx_decode_failed, never simulated
+    ok 5 - v0: a lookup table that does not exist ⇒ tx_decode_failed, never simulated
+      ---
+      duration_ms: 0.73675
+      type: 'test'
+      ...
+    1..5
+ok 76 - reviewTransaction: stage 1, decode
+  ---
+  duration_ms: 10.104333
+  type: 'suite'
+  ...
+# Subtest: reviewTransaction: stage 2, static rules (never simulated when they deny)
+    # Subtest: program not in tx.programs ⇒ program_not_allowed, no RPC call
+    ok 1 - program not in tx.programs ⇒ program_not_allowed, no RPC call
+      ---
+      duration_ms: 0.836833
+      type: 'test'
+      ...
+    # Subtest: unknownProgram "warn" ⇒ warning, simulated, held with the warning attached
+    ok 2 - unknownProgram "warn" ⇒ warning, simulated, held with the warning attached
+      ---
+      duration_ms: 1.286333
+      type: 'test'
+      ...
+    # Subtest: SPL approve ⇒ token_delegation_denied, no RPC call
+    ok 3 - SPL approve ⇒ token_delegation_denied, no RPC call
+      ---
+      duration_ms: 3.255875
+      type: 'test'
+      ...
+    # Subtest: SPL approveChecked ⇒ token_delegation_denied, no RPC call
+    ok 4 - SPL approveChecked ⇒ token_delegation_denied, no RPC call
+      ---
+      duration_ms: 0.884584
+      type: 'test'
+      ...
+    # Subtest: SPL setAuthority ⇒ token_delegation_denied, no RPC call
+    ok 5 - SPL setAuthority ⇒ token_delegation_denied, no RPC call
+      ---
+      duration_ms: 0.593084
+      type: 'test'
+      ...
+    # Subtest: denyTokenDelegation false ⇒ approve passes the static stage
+    ok 6 - denyTokenDelegation false ⇒ approve passes the static stage
+      ---
+      duration_ms: 0.710166
+      type: 'test'
+      ...
+    # Subtest: SPL legacy Transfer (tag 3) ⇒ legacy_token_transfer_denied, no RPC call
+    ok 7 - SPL legacy Transfer (tag 3) ⇒ legacy_token_transfer_denied, no RPC call
+      ---
+      duration_ms: 0.715542
+      type: 'test'
+      ...
+    # Subtest: every finding of the static set is collected, and simulation rules are not reached
+    ok 8 - every finding of the static set is collected, and simulation rules are not reached
+      ---
+      duration_ms: 0.585
+      type: 'test'
+      ...
+    1..8
+ok 77 - reviewTransaction: stage 2, static rules (never simulated when they deny)
+  ---
+  duration_ms: 9.172
+  type: 'suite'
+  ...
+# Subtest: reviewTransaction: stage 3, simulation
+    # Subtest: RPC failure in getTokenAccountsByOwner ⇒ rpc_unavailable, deny
+    ok 1 - RPC failure in getTokenAccountsByOwner ⇒ rpc_unavailable, deny
+      ---
+      duration_ms: 0.87175
+      type: 'test'
+      ...
+    # Subtest: RPC failure in getMultipleAccounts ⇒ rpc_unavailable, deny
+    ok 2 - RPC failure in getMultipleAccounts ⇒ rpc_unavailable, deny
+      ---
+      duration_ms: 0.911875
+      type: 'test'
+      ...
+    # Subtest: RPC failure in simulateTransaction ⇒ rpc_unavailable, deny
+    ok 3 - RPC failure in simulateTransaction ⇒ rpc_unavailable, deny
+      ---
+      duration_ms: 0.829709
+      type: 'test'
+      ...
+    # Subtest: a real SolanaRpc whose upstream answers HTTP 500 ⇒ rpc_unavailable, and the URL never appears
+    ok 4 - a real SolanaRpc whose upstream answers HTTP 500 ⇒ rpc_unavailable, and the URL never appears
+      ---
+      duration_ms: 95.175541
+      type: 'test'
+      ...
+    # Subtest: sim.err ⇒ simulation_failed, deny, err kept in the Review
+    ok 5 - sim.err ⇒ simulation_failed, deny, err kept in the Review
+      ---
+      duration_ms: 1.602458
+      type: 'test'
+      ...
+    # Subtest: signed sends simulate with sigVerify; tool-argument transactions without
+    ok 6 - signed sends simulate with sigVerify; tool-argument transactions without
+      ---
+      duration_ms: 3.344167
+      type: 'test'
+      ...
+    1..6
+ok 78 - reviewTransaction: stage 3, simulation
+  ---
+  duration_ms: 103.029708
+  type: 'suite'
+  ...
+# Subtest: reviewTransaction: stage 4, simulation rules
+    # Subtest: drain: 0.5 SOL to an unknown address, cap 0.05 ⇒ destination_not_allowed and outflow_exceeds_bound
+    ok 1 - drain: 0.5 SOL to an unknown address, cap 0.05 ⇒ destination_not_allowed and outflow_exceeds_bound
+      ---
+      duration_ms: 10.025333
+      type: 'test'
+      ...
+    # Subtest: drain with destinations "any" ⇒ outflow_exceeds_bound only
+    ok 2 - drain with destinations "any" ⇒ outflow_exceeds_bound only
+      ---
+      duration_ms: 16.328791
+      type: 'test'
+      ...
+    # Subtest: an allowlisted transfer under the cap ⇒ hold
+    ok 3 - an allowlisted transfer under the cap ⇒ hold
+      ---
+      duration_ms: 1.305875
+      type: 'test'
+      ...
+    # Subtest: swap-shaped vector under caps ⇒ hold with exact outflow / inflow strings and USDC in the summary
+    ok 4 - swap-shaped vector under caps ⇒ hold with exact outflow / inflow strings and USDC in the summary
+      ---
+      duration_ms: 4.168875
+      type: 'test'
+      ...
+    # Subtest: wrapped-SOL ATA created in the same transaction is the wallet's own: allowed, and its balance offsets the SOL outflow
+    ok 5 - wrapped-SOL ATA created in the same transaction is the wallet's own: allowed, and its balance offsets the SOL outflow
+      ---
+      duration_ms: 1.924416
+      type: 'test'
+      ...
+    # Subtest: transferChecked between two of the wallet's own token accounts is allowed without a list entry
+    ok 6 - transferChecked between two of the wallet's own token accounts is allowed without a list entry
+      ---
+      duration_ms: 1.284458
+      type: 'test'
+      ...
+    # Subtest: transferChecked to a token account of an allowlisted owner is still refused (the list names destinations, not owners)
+    ok 7 - transferChecked to a token account of an allowlisted owner is still refused (the list names destinations, not owners)
+      ---
+      duration_ms: 7.788458
+      type: 'test'
+      ...
+    # Subtest: closeAccount sending the rent to a stranger ⇒ destination_not_allowed
+    ok 8 - closeAccount sending the rent to a stranger ⇒ destination_not_allowed
+      ---
+      duration_ms: 4.188125
+      type: 'test'
+      ...
+    # Subtest: outflow of a mint above its cap ⇒ outflow_exceeds_bound, with the excess
+    ok 9 - outflow of a mint above its cap ⇒ outflow_exceeds_bound, with the excess
+      ---
+      duration_ms: 2.3605
+      type: 'test'
+      ...
+    # Subtest: outflow of a mint with no cap ⇒ mint_not_allowed; unknownMintOutflow "warn" ⇒ hold with the warning
+    ok 10 - outflow of a mint with no cap ⇒ mint_not_allowed; unknownMintOutflow "warn" ⇒ hold with the warning
+      ---
+      duration_ms: 1.790625
+      type: 'test'
+      ...
+    # Subtest: unknown decimals ⇒ raw units, a warning, and the cap compared as if 0 decimals
+    ok 11 - unknown decimals ⇒ raw units, a warning, and the cap compared as if 0 decimals
+      ---
+      duration_ms: 1.0995
+      type: 'test'
+      ...
+    1..11
+ok 79 - reviewTransaction: stage 4, simulation rules
+  ---
+  duration_ms: 52.867208
+  type: 'suite'
+  ...
+# Subtest: reviewTransaction: stage 5, verdict
+    # Subtest: approval "never" ⇒ allow
+    ok 1 - approval "never" ⇒ allow
+      ---
+      duration_ms: 0.40775
+      type: 'test'
+      ...
+    # Subtest: approval "always" ⇒ hold; omitted ⇒ hold
+    ok 2 - approval "always" ⇒ hold; omitted ⇒ hold
+      ---
+      duration_ms: 0.57625
+      type: 'test'
+      ...
+    # Subtest: a raw tx config is compiled on the way in; caller mistakes throw
+    ok 3 - a raw tx config is compiled on the way in; caller mistakes throw
+      ---
+      duration_ms: 0.481667
+      type: 'test'
+      ...
+    1..3
+ok 80 - reviewTransaction: stage 5, verdict
+  ---
+  duration_ms: 1.537166
+  type: 'suite'
+  ...
+# Subtest: reads pass through verbatim
+    # Subtest: POST /: upstream gets the request bytes, client gets the upstream bytes
+    ok 1 - POST /: upstream gets the request bytes, client gets the upstream bytes
+      ---
+      duration_ms: 79.475791
+      type: 'test'
+      ...
+    # Subtest: POST /s/wallet: upstream gets the request bytes, client gets the upstream bytes
+    ok 2 - POST /s/wallet: upstream gets the request bytes, client gets the upstream bytes
+      ---
+      duration_ms: 74.6265
+      type: 'test'
+      ...
+    # Subtest: a batch of reads goes up as one request and comes back verbatim
+    ok 3 - a batch of reads goes up as one request and comes back verbatim
+      ---
+      duration_ms: 8.754875
+      type: 'test'
+      ...
+    # Subtest: GET /health answers ok without touching upstream
+    ok 4 - GET /health answers ok without touching upstream
+      ---
+      duration_ms: 6.806834
+      type: 'test'
+      ...
+    1..4
+ok 81 - reads pass through verbatim
+  ---
+  duration_ms: 171.138958
+  type: 'suite'
+  ...
+# Subtest: routing
+    # Subtest: a bad server name in the path is 404 and reaches nothing
+    ok 1 - a bad server name in the path is 404 and reaches nothing
+      ---
+      duration_ms: 15.870833
+      type: 'test'
+      ...
+    # Subtest: only POST is accepted on RPC paths
+    ok 2 - only POST is accepted on RPC paths
+      ---
+      duration_ms: 2.340666
+      type: 'test'
+      ...
+    1..2
+ok 82 - routing
+  ---
+  duration_ms: 18.391458
+  type: 'suite'
+  ...
+# Subtest: I11: loopback only
+    # Subtest: a wrong Host is 403
+    ok 1 - a wrong Host is 403
+      ---
+      duration_ms: 8.226541
+      type: 'test'
+      ...
+    # Subtest: localhost:<port> is accepted as a Host
+    ok 2 - localhost:<port> is accepted as a Host
+      ---
+      duration_ms: 14.095416
+      type: 'test'
+      ...
+    # Subtest: a foreign Origin is 403; the checkpoint's own origin is not
+    ok 3 - a foreign Origin is 403; the checkpoint's own origin is not
+      ---
+      duration_ms: 15.689333
+      type: 'test'
+      ...
+    1..3
+ok 83 - I11: loopback only
+  ---
+  duration_ms: 38.593125
+  type: 'suite'
+  ...
+# Subtest: JSON-RPC handling
+    # Subtest: non-JSON is -32700
+    ok 1 - non-JSON is -32700
+      ---
+      duration_ms: 4.274
+      type: 'test'
+      ...
+    # Subtest: an empty batch and a call without a method are -32600
+    ok 2 - an empty batch and a call without a method are -32600
+      ---
+      duration_ms: 5.664875
+      type: 'test'
+      ...
+    # Subtest: a body over 2 MB is refused with 413
+    ok 3 - a body over 2 MB is refused with 413
+      ---
+      duration_ms: 26.024667
+      type: 'test'
+      ...
+    # Subtest: sendBundle is -32098 and never reaches upstream
+    ok 4 - sendBundle is -32098 and never reaches upstream
+      ---
+      duration_ms: 1.51525
+      type: 'test'
+      ...
+    # Subtest: send-shaped methods are refused even when not listed (I1)
+    ok 5 - send-shaped methods are refused even when not listed (I1)
+      ---
+      duration_ms: 11.855375
+      type: 'test'
+      ...
+    # Subtest: a configured denied method is refused
+    ok 6 - a configured denied method is refused
+      ---
+      duration_ms: 1.872375
+      type: 'test'
+      ...
+    # Subtest: requestAirdrop is denied by default, including in a mixed batch
+    ok 7 - requestAirdrop is denied by default, including in a mixed batch
+      ---
+      duration_ms: 9.455042
+      type: 'test'
+      ...
+    # Subtest: the request goes up as the parsed object, so a duplicate key cannot hide a send
+    ok 8 - the request goes up as the parsed object, so a duplicate key cannot hide a send
+      ---
+      duration_ms: 6.631459
+      type: 'test'
+      ...
+    1..8
+ok 84 - JSON-RPC handling
+  ---
+  duration_ms: 67.742
+  type: 'suite'
+  ...
+# Subtest: what goes upstream
+    # Subtest: only the JSON-RPC members are forwarded, in the client's order
+    ok 1 - only the JSON-RPC members are forwarded, in the client's order
+      ---
+      duration_ms: 13.923875
+      type: 'test'
+      ...
+    # Subtest: upstream userinfo becomes a Basic Authorization header and is never echoed
+    ok 2 - upstream userinfo becomes a Basic Authorization header and is never echoed
+      ---
+      duration_ms: 6.107625
+      type: 'test'
+      ...
+    # Subtest: HTTP and WebSocket Basic credentials are redacted from upstream echoes, refusals and logs
+    ok 3 - HTTP and WebSocket Basic credentials are redacted from upstream echoes, refusals and logs
+      ---
+      duration_ms: 15.341625
+      type: 'test'
+      ...
+    1..3
+ok 85 - what goes upstream
+  ---
+  duration_ms: 35.609792
+  type: 'suite'
+  ...
+# Subtest: upstream failure (I4: the URL never appears)
+    # Subtest: upstream down ⇒ -32097 with a fixed message, for reads and batches
+    ok 1 - upstream down ⇒ -32097 with a fixed message, for reads and batches
+      ---
+      duration_ms: 14.43825
+      type: 'test'
+      ...
+    # Subtest: non-2xx, non-JSON and redirects are upstream failures too
+    ok 2 - non-2xx, non-JSON and redirects are upstream failures too
+      ---
+      duration_ms: 41.7965
+      type: 'test'
+      ...
+    # Subtest: an upstream body that echoes the URL is redacted
+    ok 3 - an upstream body that echoes the URL is redacted
+      ---
+      duration_ms: 19.691667
+      type: 'test'
+      ...
+    # Subtest: a malformed upstream URL is rejected without echoing it
+    ok 4 - a malformed upstream URL is rejected without echoing it
+      ---
+      duration_ms: 0.796708
+      type: 'test'
+      ...
+    1..4
+ok 86 - upstream failure (I4: the URL never appears)
+  ---
+  duration_ms: 76.964125
+  type: 'suite'
+  ...
+# Subtest: sendTransaction
+    # Subtest: the test encoder agrees with known base58 vectors
+    ok 1 - the test encoder agrees with known base58 vectors
+      ---
+      duration_ms: 0.165666
+      type: 'test'
+      ...
+    # Subtest: base64 and base58 hand onSend identical bytes
+    ok 2 - base64 and base58 hand onSend identical bytes
+      ---
+      duration_ms: 131.990708
+      type: 'test'
+      ...
+    # Subtest: onSend receives server "wallet" for /s/wallet and null for /
+    ok 3 - onSend receives server "wallet" for /s/wallet and null for /
+      ---
+      duration_ms: 5.550167
+      type: 'test'
+      ...
+    # Subtest: forward ⇒ upstream receives the original request; its answer comes back verbatim
+    ok 4 - forward ⇒ upstream receives the original request; its answer comes back verbatim
+      ---
+      duration_ms: 3.268208
+      type: 'test'
+      ...
+    # Subtest: refuse ⇒ -32099 with the reason and data; upstream receives nothing
+    ok 5 - refuse ⇒ -32099 with the reason and data; upstream receives nothing
+      ---
+      duration_ms: 3.869292
+      type: 'test'
+      ...
+    # Subtest: onSend throwing, or answering anything but { forward: true }, refuses (I7)
+    ok 6 - onSend throwing, or answering anything but { forward: true }, refuses (I7)
+      ---
+      duration_ms: 21.684333
+      type: 'test'
+      ...
+    # Subtest: an undecodable transaction is -32602 and never reaches onSend
+    ok 7 - an undecodable transaction is -32602 and never reaches onSend
+      ---
+      duration_ms: 18.521333
+      type: 'test'
+      ...
+    # Subtest: onSend tampering with what it is handed does not change what goes upstream
+    ok 8 - onSend tampering with what it is handed does not change what goes upstream
+      ---
+      duration_ms: 6.662167
+      type: 'test'
+      ...
+    # Subtest: upstream down while forwarding a send ⇒ -32097, URL nowhere
+    ok 9 - upstream down while forwarding a send ⇒ -32097, URL nowhere
+      ---
+      duration_ms: 3.647708
+      type: 'test'
+      ...
+    # Subtest: meta.signal aborts when the client hangs up
+    ok 10 - meta.signal aborts when the client hangs up
+      ---
+      duration_ms: 8.858
+      type: 'test'
+      ...
+    # Subtest: a send approved after close() is not forwarded
+    ok 11 - a send approved after close() is not forwarded
+      ---
+      duration_ms: 29.46775
+      type: 'test'
+      ...
+    1..11
+ok 87 - sendTransaction
+  ---
+  duration_ms: 234.374833
+  type: 'suite'
+  ...
+# Subtest: batches
+    # Subtest: a read and a refused send: read answered, send refused, ids preserved
+    ok 1 - a read and a refused send: read answered, send refused, ids preserved
+      ---
+      duration_ms: 5.118666
+      type: 'test'
+      ...
+    # Subtest: a batch's sends are decided one at a time, in order
+    ok 2 - a batch's sends are decided one at a time, in order
+      ---
+      duration_ms: 57.650667
+      type: 'test'
+      ...
+    1..2
+ok 88 - batches
+  ---
+  duration_ms: 62.953458
+  type: 'suite'
+  ...
+# Subtest: WebSocket tunnel on port + 1
+    # Subtest: bytes written by the client come back through the tunnel
+    ok 1 - bytes written by the client come back through the tunnel
+      ---
+      duration_ms: 12.874916
+      type: 'test'
+      ...
+    # Subtest: when either side closes, both are torn down
+    ok 2 - when either side closes, both are torn down
+      ---
+      duration_ms: 4.72375
+      type: 'test'
+      ...
+    # Subtest: wrong Host, foreign Origin, bad path: refused before any upstream connection
+    ok 3 - wrong Host, foreign Origin, bad path: refused before any upstream connection
+      ---
+      duration_ms: 14.243084
+      type: 'test'
+      ...
+    # Subtest: upstream WebSocket down ⇒ 502, URL nowhere
+    ok 4 - upstream WebSocket down ⇒ 502, URL nowhere
+      ---
+      duration_ms: 3.435458
+      type: 'test'
+      ...
+    # Subtest: with upstreamWsUrl undefined the tunnel targets the upstream URL with ws://
+    ok 5 - with upstreamWsUrl undefined the tunnel targets the upstream URL with ws://
+      ---
+      duration_ms: 3.832208
+      type: 'test'
+      ...
+    # Subtest: with upstreamWsUrl "" the tunnel targets the upstream URL with ws://
+    ok 6 - with upstreamWsUrl "" the tunnel targets the upstream URL with ws://
+      ---
+      duration_ms: 2.47425
+      type: 'test'
+      ...
+    # Subtest: ws userinfo becomes Authorization; the client's own Authorization is dropped
+    ok 7 - ws userinfo becomes Authorization; the client's own Authorization is dropped
+      ---
+      duration_ms: 2.078958
+      type: 'test'
+      ...
+    1..7
+ok 89 - WebSocket tunnel on port + 1
+  ---
+  duration_ms: 44.125083
+  type: 'suite'
+  ...
+# Subtest: lifecycle
+    # Subtest: close() frees both ports, even with a live tunnel and a keep-alive connection
+    ok 1 - close() frees both ports, even with a live tunnel and a keep-alive connection
+      ---
+      duration_ms: 5.566041
+      type: 'test'
+      ...
+    # Subtest: close() is idempotent
+    ok 2 - close() is idempotent
+      ---
+      duration_ms: 0.751959
+      type: 'test'
+      ...
+    # Subtest: if port + 1 is taken, start fails naming it and leaves port free
+    ok 3 - if port + 1 is taken, start fails naming it and leaves port free
+      ---
+      duration_ms: 0.826833
+      type: 'test'
+      ...
+    # Subtest: bad arguments are refused before anything listens
+    ok 4 - bad arguments are refused before anything listens
+      ---
+      duration_ms: 0.956458
+      type: 'test'
+      ...
+    1..4
+ok 90 - lifecycle
+  ---
+  duration_ms: 9.206959
+  type: 'suite'
+  ...
+# Subtest: compileToolPolicy: config errors at load time (exit 2)
+    # Subtest: unknown mode string
+    ok 1 - unknown mode string
+      ---
+      duration_ms: 1.200834
+      type: 'test'
+      ...
+    # Subtest: unknown mode in an object
+    ok 2 - unknown mode in an object
+      ---
+      duration_ms: 0.113375
+      type: 'test'
+      ...
+    # Subtest: object without a mode
+    ok 3 - object without a mode
+      ---
+      duration_ms: 0.093584
+      type: 'test'
+      ...
+    # Subtest: a value that is neither string nor object
+    ok 4 - a value that is neither string nor object
+      ---
+      duration_ms: 0.091
+      type: 'test'
+      ...
+    # Subtest: unknown rule key
+    ok 5 - unknown rule key
+      ---
+      duration_ms: 0.088416
+      type: 'test'
+      ...
+    # Subtest: unknown constraint key
+    ok 6 - unknown constraint key
+      ---
+      duration_ms: 0.089166
+      type: 'test'
+      ...
+    # Subtest: constraint that is not an object
+    ok 7 - constraint that is not an object
+      ---
+      duration_ms: 0.384875
+      type: 'test'
+      ...
+    # Subtest: args that is not an object
+    ok 8 - args that is not an object
+      ---
+      duration_ms: 3.053083
+      type: 'test'
+      ...
+    # Subtest: unknown type
+    ok 9 - unknown type
+      ---
+      duration_ms: 1.230333
+      type: 'test'
+      ...
+    # Subtest: required that is not a boolean
+    ok 10 - required that is not a boolean
+      ---
+      duration_ms: 0.973084
+      type: 'test'
+      ...
+    # Subtest: @list that does not exist
+    ok 11 - @list that does not exist
+      ---
+      duration_ms: 0.1675
+      type: 'test'
+      ...
+    # Subtest: in: a string that is not @list
+    ok 12 - in: a string that is not @list
+      ---
+      duration_ms: 0.102667
+      type: 'test'
+      ...
+    # Subtest: in: a bare "@"
+    ok 13 - in: a bare "@"
+      ---
+      duration_ms: 0.131334
+      type: 'test'
+      ...
+    # Subtest: in: an array with a non-string
+    ok 14 - in: an array with a non-string
+      ---
+      duration_ms: 0.131417
+      type: 'test'
+      ...
+    # Subtest: in on a number
+    ok 15 - in on a number
+      ---
+      duration_ms: 0.084792
+      type: 'test'
+      ...
+    # Subtest: txArg naming nothing (empty)
+    ok 16 - txArg naming nothing (empty)
+      ---
+      duration_ms: 0.093458
+      type: 'test'
+      ...
+    # Subtest: txArg naming nothing (not a string)
+    ok 17 - txArg naming nothing (not a string)
+      ---
+      duration_ms: 0.074667
+      type: 'test'
+      ...
+    # Subtest: txArg with padding
+    ok 18 - txArg with padding
+      ---
+      duration_ms: 0.073834
+      type: 'test'
+      ...
+    # Subtest: unknown txArgEncoding
+    ok 19 - unknown txArgEncoding
+      ---
+      duration_ms: 0.079708
+      type: 'test'
+      ...
+    # Subtest: txArgEncoding without txArg
+    ok 20 - txArgEncoding without txArg
+      ---
+      duration_ms: 0.201
+      type: 'test'
+      ...
+    # Subtest: "bound" with nothing to bind (string)
+    ok 21 - "bound" with nothing to bind (string)
+      ---
+      duration_ms: 0.138333
+      type: 'test'
+      ...
+    # Subtest: "bound" with nothing to bind (empty args)
+    ok 22 - "bound" with nothing to bind (empty args)
+      ---
+      duration_ms: 1.400042
+      type: 'test'
+      ...
+    # Subtest: args on a pass rule
+    ok 23 - args on a pass rule
+      ---
+      duration_ms: 0.13875
+      type: 'test'
+      ...
+    # Subtest: txArg on a deny rule
+    ok 24 - txArg on a deny rule
+      ---
+      duration_ms: 0.084625
+      type: 'test'
+      ...
+    # Subtest: "*" set to pass
+    ok 25 - "*" set to pass
+      ---
+      duration_ms: 0.075583
+      type: 'test'
+      ...
+    # Subtest: "*" set to bound
+    ok 26 - "*" set to bound
+      ---
+      duration_ms: 0.066875
+      type: 'test'
+      ...
+    # Subtest: a server that is not configured
+    ok 27 - a server that is not configured
+      ---
+      duration_ms: 0.070083
+      type: 'test'
+      ...
+    # Subtest: a glob in the server part
+    ok 28 - a glob in the server part
+      ---
+      duration_ms: 0.067875
+      type: 'test'
+      ...
+    # Subtest: a key without a dot
+    ok 29 - a key without a dot
+      ---
+      duration_ms: 0.116875
+      type: 'test'
+      ...
+    # Subtest: a key starting with a dot
+    ok 30 - a key starting with a dot
+      ---
+      duration_ms: 0.191542
+      type: 'test'
+      ...
+    # Subtest: a tool part with a dot
+    ok 31 - a tool part with a dot
+      ---
+      duration_ms: 1.461333
+      type: 'test'
+      ...
+    # Subtest: a tool part with a space
+    ok 32 - a tool part with a space
+      ---
+      duration_ms: 0.280666
+      type: 'test'
+      ...
+    # Subtest: lte without a type
+    ok 33 - lte without a type
+      ---
+      duration_ms: 0.155292
+      type: 'test'
+      ...
+    # Subtest: gte on a string
+    ok 34 - gte on a string
+      ---
+      duration_ms: 0.135583
+      type: 'test'
+      ...
+    # Subtest: a string bound for a number
+    ok 35 - a string bound for a number
+      ---
+      duration_ms: 0.10425
+      type: 'test'
+      ...
+    # Subtest: an exponent bound for a number-string
+    ok 36 - an exponent bound for a number-string
+      ---
+      duration_ms: 0.104292
+      type: 'test'
+      ...
+    # Subtest: a bound finer than 18 decimals
+    ok 37 - a bound finer than 18 decimals
+      ---
+      duration_ms: 0.111167
+      type: 'test'
+      ...
+    # Subtest: gte above lte
+    ok 38 - gte above lte
+      ---
+      duration_ms: 0.224667
+      type: 'test'
+      ...
+    # Subtest: gte above lte (number-string)
+    ok 39 - gte above lte (number-string)
+      ---
+      duration_ms: 0.103458
+      type: 'test'
+      ...
+    # Subtest: an invalid pattern
+    ok 40 - an invalid pattern
+      ---
+      duration_ms: 0.115875
+      type: 'test'
+      ...
+    # Subtest: a pattern on an integer
+    ok 41 - a pattern on an integer
+      ---
+      duration_ms: 0.106708
+      type: 'test'
+      ...
+    # Subtest: an empty pattern
+    ok 42 - an empty pattern
+      ---
+      duration_ms: 0.08175
+      type: 'test'
+      ...
+    # Subtest: tools and lists must be objects
+    ok 43 - tools and lists must be objects
+      ---
+      duration_ms: 0.197667
+      type: 'test'
+      ...
+    # Subtest: the example configs compile
+    ok 44 - the example configs compile
+      ---
+      duration_ms: 0.92225
+      type: 'test'
+      ...
+    # Subtest: the compiled policy is frozen
+    ok 45 - the compiled policy is frozen
+      ---
+      duration_ms: 0.489875
+      type: 'test'
+      ...
+    1..45
+ok 91 - compileToolPolicy: config errors at load time (exit 2)
+  ---
+  duration_ms: 17.984791
+  type: 'suite'
+  ...
+# Subtest: decideTool: modes and precedence
+    # Subtest: pass: allowed, no violations, the matching key as rule
+    ok 1 - pass: allowed, no violations, the matching key as rule
+      ---
+      duration_ms: 1.440041
+      type: 'test'
+      ...
+    # Subtest: no rule at all -> unknown_tool (rule null)
+    ok 2 - no rule at all -> unknown_tool (rule null)
+      ---
+      duration_ms: 0.233083
+      type: 'test'
+      ...
+    # Subtest: only "*": "deny" matched -> unknown_tool (rule "*")
+    ok 3 - only "*": "deny" matched -> unknown_tool (rule "*")
+      ---
+      duration_ms: 0.244916
+      type: 'test'
+      ...
+    # Subtest: "wallet.foo": "deny" -> tool_denied; so does an explicit glob
+    ok 4 - "wallet.foo": "deny" -> tool_denied; so does an explicit glob
+      ---
+      duration_ms: 0.300125
+      type: 'test'
+      ...
+    # Subtest: exact key beats a glob declared before it
+    ok 5 - exact key beats a glob declared before it
+      ---
+      duration_ms: 0.145125
+      type: 'test'
+      ...
+    # Subtest: globs apply in declaration order
+    ok 6 - globs apply in declaration order
+      ---
+      duration_ms: 0.918875
+      type: 'test'
+      ...
+    # Subtest: "*" comes last: after every exact key and glob
+    ok 7 - "*" comes last: after every exact key and glob
+      ---
+      duration_ms: 0.139708
+      type: 'test'
+      ...
+    # Subtest: globs are anchored, stay in their server, and * matches any run of characters
+    ok 8 - globs are anchored, stay in their server, and * matches any run of characters
+      ---
+      duration_ms: 0.205583
+      type: 'test'
+      ...
+    # Subtest: names that are not tool names never match a glob
+    ok 9 - names that are not tool names never match a glob
+      ---
+      duration_ms: 0.117167
+      type: 'test'
+      ...
+    # Subtest: a decision is JSON-safe
+    ok 10 - a decision is JSON-safe
+      ---
+      duration_ms: 0.607708
+      type: 'test'
+      ...
+    1..10
+ok 92 - decideTool: modes and precedence
+  ---
+  duration_ms: 4.642958
+  type: 'suite'
+  ...
+# Subtest: decideTool: constraints
+    # Subtest: within bounds -> allowed; extra arguments are allowed
+    ok 1 - within bounds -> allowed; extra arguments are allowed
+      ---
+      duration_ms: 0.159917
+      type: 'test'
+      ...
+    # Subtest: every violation is reported, in declaration order; code is the first
+    ok 2 - every violation is reported, in declaration order; code is the first
+      ---
+      duration_ms: 0.119958
+      type: 'test'
+      ...
+    # Subtest: type number: finite numbers only; gte / lte inclusive
+    ok 3 - type number: finite numbers only; gte / lte inclusive
+      ---
+      duration_ms: 0.791291
+      type: 'test'
+      ...
+    # Subtest: type integer: safe integers only
+    ok 4 - type integer: safe integers only
+      ---
+      duration_ms: 0.270041
+      type: 'test'
+      ...
+    # Subtest: type string
+    ok 5 - type string
+      ---
+      duration_ms: 0.114083
+      type: 'test'
+      ...
+    # Subtest: required defaults to true; required: false lets the argument be absent; null counts as absent
+    ok 6 - required defaults to true; required: false lets the argument be absent; null counts as absent
+      ---
+      duration_ms: 0.468417
+      type: 'test'
+      ...
+    # Subtest: in: a literal array and an @list; type checked first
+    ok 7 - in: a literal array and an @list; type checked first
+      ---
+      duration_ms: 0.312208
+      type: 'test'
+      ...
+    # Subtest: pattern is anchored (whole value), alternation included
+    ok 8 - pattern is anchored (whole value), alternation included
+      ---
+      duration_ms: 0.237375
+      type: 'test'
+      ...
+    # Subtest: arguments that are not an object are one arg_type violation
+    ok 9 - arguments that are not an object are one arg_type violation
+      ---
+      duration_ms: 0.114375
+      type: 'test'
+      ...
+    # Subtest: constraint names never resolve through the prototype chain
+    ok 10 - constraint names never resolve through the prototype chain
+      ---
+      duration_ms: 0.140541
+      type: 'test'
+      ...
+    # Subtest: a long observed value is truncated in the violation
+    ok 11 - a long observed value is truncated in the violation
+      ---
+      duration_ms: 0.15725
+      type: 'test'
+      ...
+    1..11
+ok 93 - decideTool: constraints
+  ---
+  duration_ms: 3.212917
+  type: 'suite'
+  ...
+# Subtest: number-string: exact decimal comparison
+    # Subtest: "0.05" <= 0.05 passes; "0.0500000001" fails
+    ok 1 - "0.05" <= 0.05 passes; "0.0500000001" fails
+      ---
+      duration_ms: 0.230625
+      type: 'test'
+      ...
+    # Subtest: exact where a double is not
+    ok 2 - exact where a double is not
+      ---
+      duration_ms: 0.114125
+      type: 'test'
+      ...
+    # Subtest: "1e-3" and every other non-plain form is rejected as arg_type
+    ok 3 - "1e-3" and every other non-plain form is rejected as arg_type
+      ---
+      duration_ms: 1.478542
+      type: 'test'
+      ...
+    # Subtest: a JSON number is not a number-string
+    ok 4 - a JSON number is not a number-string
+      ---
+      duration_ms: 0.123
+      type: 'test'
+      ...
+    # Subtest: 18 decimal places is the limit; bounds from exponent numbers and from strings
+    ok 5 - 18 decimal places is the limit; bounds from exponent numbers and from strings
+      ---
+      duration_ms: 0.166958
+      type: 'test'
+      ...
+    # Subtest: parseDecimal and numberToDecimal
+    ok 6 - parseDecimal and numberToDecimal
+      ---
+      duration_ms: 0.15125
+      type: 'test'
+      ...
+    1..6
+ok 94 - number-string: exact decimal comparison
+  ---
+  duration_ms: 2.481166
+  type: 'suite'
+  ...
+# Subtest: txArg
+    # Subtest: the decision carries the transaction argument and its encoding
+    ok 1 - the decision carries the transaction argument and its encoding
+      ---
+      duration_ms: 0.214458
+      type: 'test'
+      ...
+    # Subtest: the transaction must be present and a string, whatever args says
+    ok 2 - the transaction must be present and a string, whatever args says
+      ---
+      duration_ms: 0.222917
+      type: 'test'
+      ...
+    1..2
+ok 95 - txArg
+  ---
+  duration_ms: 0.523917
+  type: 'suite'
+  ...
+# Subtest: refusal
+    # Subtest: CallToolResult shape: text = JSON body = structuredContent, isError
+    ok 1 - CallToolResult shape: text = JSON body = structuredContent, isError
+      ---
+      duration_ms: 0.297291
+      type: 'test'
+      ...
+    # Subtest: defaults: rule null, no violations, a hint for the agent
+    ok 2 - defaults: rule null, no violations, a hint for the agent
+      ---
+      duration_ms: 1.457208
+      type: 'test'
+      ...
+    # Subtest: JSON-safe even when handed a BigInt
+    ok 3 - JSON-safe even when handed a BigInt
+      ---
+      duration_ms: 0.402583
+      type: 'test'
+      ...
+    # Subtest: the stable codes are exactly the SPEC §5.3 list; an unknown code is a programming error
+    ok 4 - the stable codes are exactly the SPEC §5.3 list; an unknown code is a programming error
+      ---
+      duration_ms: 0.192417
+      type: 'test'
+      ...
+    1..4
+ok 96 - refusal
+  ---
+  duration_ms: 2.549875
+  type: 'suite'
+  ...
+# Subtest: listing
+    # Subtest: pass is listed unchanged; bound gets the guard suffix
+    ok 1 - pass is listed unchanged; bound gets the guard suffix
+      ---
+      duration_ms: 0.409375
+      type: 'test'
+      ...
+    # Subtest: tx.approval "never" (tests only) drops the approval claim
+    ok 2 - tx.approval "never" (tests only) drops the approval claim
+      ---
+      duration_ms: 0.270792
+      type: 'test'
+      ...
+    # Subtest: denied tools are hidden; showDeniedTools lists explicit denies with [denied]
+    ok 3 - denied tools are hidden; showDeniedTools lists explicit denies with [denied]
+      ---
+      duration_ms: 0.373583
+      type: 'test'
+      ...
+    # Subtest: a tool no rule names (or only "*") stays hidden even with showDeniedTools (I1)
+    ok 4 - a tool no rule names (or only "*") stays hidden even with showDeniedTools (I1)
+      ---
+      duration_ms: 0.1795
+      type: 'test'
+      ...
+    # Subtest: policySummary is JSON-safe and lists every rule in order
+    ok 5 - policySummary is JSON-safe and lists every rule in order
+      ---
+      duration_ms: 0.345792
+      type: 'test'
+      ...
+    1..5
+ok 97 - listing
+  ---
+  duration_ms: 1.798459
+  type: 'suite'
+  ...
+# Subtest: gate run with a tool policy (stdio)
+    # Subtest: bound violations, denies and txArg tools are refused before the downstream; allowed calls forward
+    ok 1 - bound violations, denies and txArg tools are refused before the downstream; allowed calls forward
+      ---
+      duration_ms: 507.656667
+      type: 'test'
+      ...
+    # Subtest: showDeniedTools: true lists explicit denies with [denied]; unmatched tools stay hidden; calls still refused
+    ok 2 - showDeniedTools: true lists explicit denies with [denied]; unmatched tools stay hidden; calls still refused
+      ---
+      duration_ms: 410.434166
+      type: 'test'
+      ...
+    # Subtest: a config without any tools rule exposes nothing but gate__status (default deny)
+    ok 3 - a config without any tools rule exposes nothing but gate__status (default deny)
+      ---
+      duration_ms: 321.629416
+      type: 'test'
+      ...
+    # Subtest: policy errors are exit 2 at load time: nothing spawned, nothing on stdout
+    ok 4 - policy errors are exit 2 at load time: nothing spawned, nothing on stdout
+      ---
+      duration_ms: 1093.146041
+      type: 'test'
+      ...
+    1..4
+ok 98 - gate run with a tool policy (stdio)
+  ---
+  duration_ms: 2333.169042
+  type: 'suite'
+  ...
+# Subtest: Jupiter requestId UUIDv7 gives the order creation time
+ok 99 - Jupiter requestId UUIDv7 gives the order creation time
+  ---
+  duration_ms: 4.197292
+  type: 'test'
+  ...
+# Subtest: measures the blockhash window from receipt with block-height bounds
+ok 100 - measures the blockhash window from receipt with block-height bounds
+  ---
+  duration_ms: 3.4775
+  type: 'test'
+  ...
+# Subtest: a fresh hash is not yet finalized and leaves ~30 s at 200 ms blocks
+ok 101 - a fresh hash is not yet finalized and leaves ~30 s at 200 ms blocks
+  ---
+  duration_ms: 3.602333
+  type: 'test'
+  ...
+# Subtest: summary turns windows into a human budget and a go / no-go verdict
+ok 102 - summary turns windows into a human budget and a go / no-go verdict
+  ---
+  duration_ms: 0.420458
+  type: 'test'
+  ...
+# Subtest: an order for another wallet or amount is refused before any RPC
+ok 103 - an order for another wallet or amount is refused before any RPC
+  ---
+  duration_ms: 1.143083
+  type: 'test'
+  ...
+# Subtest: funding orchestration, end to end
+    # Subtest: a payment listed promptly is proven and confirmed, at the real cutoff
+    ok 1 - a payment listed promptly is proven and confirmed, at the real cutoff
+      ---
+      duration_ms: 408.074208
+      type: 'test'
+      ...
+    # Subtest: the signing handoff is withheld when no executor is running
+    ok 2 - the signing handoff is withheld when no executor is running
+      ---
+      duration_ms: 428.31925
+      type: 'test'
+      ...
+    # Subtest: the signing handoff is withheld once the approval cutoff has passed
+    ok 3 - the signing handoff is withheld once the approval cutoff has passed
+      ---
+      duration_ms: 379.488916
+      type: 'test'
+      ...
+    # Subtest: a payment past the WatchRule SLOT deadline does not exit green
+    ok 4 - a payment past the WatchRule SLOT deadline does not exit green
+      ---
+      duration_ms: 348.166208
+      type: 'test'
+      ...
+    # Subtest: a server that omits the slot fields yields unverified, not success
+    ok 5 - a server that omits the slot fields yields unverified, not success
+      ---
+      duration_ms: 325.830375
+      type: 'test'
+      ...
+    # Subtest: a payment the RPC lists only after the cutoff is still recorded
+    ok 6 - a payment the RPC lists only after the cutoff is still recorded
+      ---
+      duration_ms: 3574.961291
+      type: 'test'
+      ...
+    # Subtest: an unrelated transaction on the same account is never confirmed
+    ok 7 - an unrelated transaction on the same account is never confirmed
+      ---
+      duration_ms: 3308.934666
+      type: 'test'
+      ...
+    # Subtest: a payment older than the intent is refused as a replay
+    ok 8 - a payment older than the intent is refused as a replay
+      ---
+      duration_ms: 3357.901375
+      type: 'test'
+      ...
+    # Subtest: a still-confirming payment is retried with the same signature
+    ok 9 - a still-confirming payment is retried with the same signature
+      ---
+      duration_ms: 4298.91975
+      type: 'test'
+      ...
+    1..9
+ok 104 - funding orchestration, end to end
+  ---
+  duration_ms: 16432.998209
+  type: 'suite'
+  ...
+# Subtest: existing unsigned quote can be refreshed only by an explicit click
+ok 105 - existing unsigned quote can be refreshed only by an explicit click
+  ---
+  duration_ms: 13.423875
+  type: 'test'
+  ...
+# Subtest: local deadline disables signing and tells user to refresh, without autoquote
+ok 106 - local deadline disables signing and tells user to refresh, without autoquote
+  ---
+  duration_ms: 7.915208
+  type: 'test'
+  ...
+# Subtest: invalid expiry also refuses signing
+ok 107 - invalid expiry also refuses signing
+  ---
+  duration_ms: 2.6125
+  type: 'test'
+  ...
+# Subtest: pre-signature quote refusal allows an explicit new quote without retrying automatically
+ok 108 - pre-signature quote refusal allows an explicit new quote without retrying automatically
+  ---
+  duration_ms: 2.399291
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"paused":true}
+ok 109 - paused/pending/result guard survives refresh availability: {"paused":true}
+  ---
+  duration_ms: 2.440208
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"phase":"gate-approval-pending"}
+ok 110 - paused/pending/result guard survives refresh availability: {"phase":"gate-approval-pending"}
+  ---
+  duration_ms: 1.310125
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"phase":"submitting"}
+ok 111 - paused/pending/result guard survives refresh availability: {"phase":"submitting"}
+  ---
+  duration_ms: 1.586375
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"phase":"outcome-unknown"}
+ok 112 - paused/pending/result guard survives refresh availability: {"phase":"outcome-unknown"}
+  ---
+  duration_ms: 1.309083
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"phase":"refused","result":{"status":"refused"}}
+ok 113 - paused/pending/result guard survives refresh availability: {"phase":"refused","result":{"status":"refused"}}
+  ---
+  duration_ms: 4.308458
+  type: 'test'
+  ...
+# Subtest: elapsed clock counts from server receipt and flags the chain-confirmed expiry
+ok 114 - elapsed clock counts from server receipt and flags the chain-confirmed expiry
+  ---
+  duration_ms: 2.560375
+  type: 'test'
+  ...
+# Subtest: blockhash refusal is explained in plain words and keeps code and stage
+ok 115 - blockhash refusal is explained in plain words and keeps code and stage
+  ---
+  duration_ms: 1.394833
+  type: 'test'
+  ...
+# Subtest: unknown outcome shows the candidate signature to reconcile, never a retry
+ok 116 - unknown outcome shows the candidate signature to reconcile, never a retry
+  ---
+  duration_ms: 1.298083
+  type: 'test'
+  ...
+# Subtest: both wallet actions share the absolute deadline instead of a new approval clock
+ok 117 - both wallet actions share the absolute deadline instead of a new approval clock
+  ---
+  duration_ms: 4.954416
+  type: 'test'
+  ...
+# Subtest: an approval cutoff before the nominal order expiry prevents a late wallet request
+ok 118 - an approval cutoff before the nominal order expiry prevents a late wallet request
+  ---
+  duration_ms: 1.618792
+  type: 'test'
+  ...
+# Subtest: common deadline refusal names the operation deadline without claiming chain expiry
+ok 119 - common deadline refusal names the operation deadline without claiming chain expiry
+  ---
+  duration_ms: 1.0625
+  type: 'test'
+  ...
+# Subtest: signing handler stops at the profile-specific start deadline 9000
+ok 120 - signing handler stops at the profile-specific start deadline 9000
+  ---
+  duration_ms: 3.625375
+  type: 'test'
+  ...
+# Subtest: signing handler stops at the profile-specific start deadline 5000
+ok 121 - signing handler stops at the profile-specific start deadline 5000
+  ---
+  duration_ms: 3.63025
+  type: 'test'
+  ...
+# Subtest: valid exact-message Phantom signature is verified, and output is public-only
+ok 122 - valid exact-message Phantom signature is verified, and output is public-only
+  ---
+  duration_ms: 6.184167
+  type: 'test'
+  ...
+# Subtest: changed message, invalid signature, wrong signer and noncanonical encoding are refused
+ok 123 - changed message, invalid signature, wrong signer and noncanonical encoding are refused
+  ---
+  duration_ms: 3.553542
+  type: 'test'
+  ...
+# Subtest: known valid cosignature is preserved, missing cosigner signature is refused
+ok 124 - known valid cosignature is preserved, missing cosigner signature is refused
+  ---
+  duration_ms: 4.322084
+  type: 'test'
+  ...
+# Subtest: constructor and initially paused quote perform no I/O
+ok 125 - constructor and initially paused quote perform no I/O
+  ---
+  duration_ms: 4.001792
+  type: 'test'
+  ...
+# Subtest: fake order and fake simulation create no submission before generated Gate approval
+ok 126 - fake order and fake simulation create no submission before generated Gate approval
+  ---
+  duration_ms: 27.172875
+  type: 'test'
+  ...
+# Subtest: versioned transaction lookup tables are covered by read-only RPC allowlist
+ok 127 - versioned transaction lookup tables are covered by read-only RPC allowlist
+  ---
+  duration_ms: 13.118334
+  type: 'test'
+  ...
+# Subtest: refused quote keeps its one review as audit evidence without a second simulation
+ok 128 - refused quote keeps its one review as audit evidence without a second simulation
+  ---
+  duration_ms: 3.81225
+  type: 'test'
+  ...
+# Subtest: pre-sign and final Gate review send only unsigned legacy/v0 payloads to fake RPC
+ok 129 - pre-sign and final Gate review send only unsigned legacy/v0 payloads to fake RPC
+  ---
+  duration_ms: 16.893416
+  type: 'test'
+  ...
+# Subtest: all cosigner slots are stripped for simulation while signed execute preserves them
+ok 130 - all cosigner slots are stripped for simulation while signed execute preserves them
+  ---
+  duration_ms: 10.5515
+  type: 'test'
+  ...
+# Subtest: fake quote refuses wrong mainnet genesis
+ok 131 - fake quote refuses wrong mainnet genesis
+  ---
+  duration_ms: 1.825333
+  type: 'test'
+  ...
+# Subtest: fake quote refuses wrong input amount
+ok 132 - fake quote refuses wrong input amount
+  ---
+  duration_ms: 1.762166
+  type: 'test'
+  ...
+# Subtest: fake quote refuses wrong taker
+ok 133 - fake quote refuses wrong taker
+  ---
+  duration_ms: 1.529541
+  type: 'test'
+  ...
+# Subtest: fake quote refuses wrong mint
+ok 134 - fake quote refuses wrong mint
+  ---
+  duration_ms: 1.000208
+  type: 'test'
+  ...
+# Subtest: fake quote refuses excess slippage
+ok 135 - fake quote refuses excess slippage
+  ---
+  duration_ms: 0.692666
+  type: 'test'
+  ...
+# Subtest: fake quote refuses misleading threshold
+ok 136 - fake quote refuses misleading threshold
+  ---
+  duration_ms: 0.598333
+  type: 'test'
+  ...
+# Subtest: fake quote refuses threshold above quote
+ok 137 - fake quote refuses threshold above quote
+  ---
+  duration_ms: 1.427375
+  type: 'test'
+  ...
+# Subtest: fake quote refuses missing minimum
+ok 138 - fake quote refuses missing minimum
+  ---
+  duration_ms: 1.047167
+  type: 'test'
+  ...
+# Subtest: fake quote refuses simulation loses USDC
+ok 139 - fake quote refuses simulation loses USDC
+  ---
+  duration_ms: 2.599292
+  type: 'test'
+  ...
+# Subtest: fake quote refuses SOL outflow exceeds cap
+ok 140 - fake quote refuses SOL outflow exceeds cap
+  ---
+  duration_ms: 4.180709
+  type: 'test'
+  ...
+# Subtest: fake quote refuses simulation error
+ok 141 - fake quote refuses simulation error
+  ---
+  duration_ms: 2.237708
+  type: 'test'
+  ...
+# Subtest: fake quote refuses expired blockhash
+ok 142 - fake quote refuses expired blockhash
+  ---
+  duration_ms: 1.497417
+  type: 'test'
+  ...
+# Subtest: fake quote refuses expired order
+ok 143 - fake quote refuses expired order
+  ---
+  duration_ms: 0.89275
+  type: 'test'
+  ...
+# Subtest: quote refuses additional unsigned cosigner, but accepts a known valid cosigner
+ok 144 - quote refuses additional unsigned cosigner, but accepts a known valid cosigner
+  ---
+  duration_ms: 4.306417
+  type: 'test'
+  ...
+# Subtest: final Gate simulation must still meet minimum USDC before fake POST
+ok 145 - final Gate simulation must still meet minimum USDC before fake POST
+  ---
+  duration_ms: 9.232916
+  type: 'test'
+  ...
+# Subtest: user rejection and pause cancel holds without executing
+ok 146 - user rejection and pause cancel holds without executing
+  ---
+  duration_ms: 13.679416
+  type: 'test'
+  ...
+# Subtest: caller cancellation aborts pending approval without a fake POST
+ok 147 - caller cancellation aborts pending approval without a fake POST
+  ---
+  duration_ms: 4.745334
+  type: 'test'
+  ...
+# Subtest: final blockhash expiry refuses fake POST even after generated approval
+ok 148 - final blockhash expiry refuses fake POST even after generated approval
+  ---
+  duration_ms: 6.452917
+  type: 'test'
+  ...
+# Subtest: unknown pre-execution exception uses only generic diagnostic code and no raw error
+ok 149 - unknown pre-execution exception uses only generic diagnostic code and no raw error
+  ---
+  duration_ms: 7.708167
+  type: 'test'
+  ...
+# Subtest: fake POST timeout retains candidate signature and forbids retry
+ok 150 - fake POST timeout retains candidate signature and forbids retry
+  ---
+  duration_ms: 7.05525
+  type: 'test'
+  ...
+# Subtest: fake POST mismatch retains candidate signature and forbids retry
+ok 151 - fake POST mismatch retains candidate signature and forbids retry
+  ---
+  duration_ms: 5.252208
+  type: 'test'
+  ...
+# Subtest: fake POST Failed retains candidate signature and forbids retry
+ok 152 - fake POST Failed retains candidate signature and forbids retry
+  ---
+  duration_ms: 4.975833
+  type: 'test'
+  ...
+# Subtest: signed transaction echoed by fake RPC is removed from audit and public state
+ok 153 - signed transaction echoed by fake RPC is removed from audit and public state
+  ---
+  duration_ms: 7.53
+  type: 'test'
+  ...
+# Subtest: expired reviewed order cannot be signed and never reaches Gate or transport
+ok 154 - expired reviewed order cannot be signed and never reaches Gate or transport
+  ---
+  duration_ms: 2.362167
+  type: 'test'
+  ...
+# Subtest: pause during an in-flight scripted RPC prevents the next RPC and order
+ok 155 - pause during an in-flight scripted RPC prevents the next RPC and order
+  ---
+  duration_ms: 0.84275
+  type: 'test'
+  ...
+# Subtest: refusal record names the guard, elapsed time and chain answer (2026-10-11 replay)
+ok 156 - refusal record names the guard, elapsed time and chain answer (2026-10-11 replay)
+  ---
+  duration_ms: 6.719541
+  type: 'test'
+  ...
+# Subtest: final RPC failure is recorded as rpc_unavailable, distinct from an expired blockhash
+ok 157 - final RPC failure is recorded as rpc_unavailable, distinct from an expired blockhash
+  ---
+  duration_ms: 3.975375
+  type: 'test'
+  ...
+# Subtest: blockhash watchdog cancels the pending Gate hold once the chain says the blockhash is gone
+ok 158 - blockhash watchdog cancels the pending Gate hold once the chain says the blockhash is gone
+  ---
+  duration_ms: 41.079292
+  type: 'test'
+  ...
+# Subtest: blockhash watchdog expires an unsigned order before Phantom is asked to sign
+ok 159 - blockhash watchdog expires an unsigned order before Phantom is asked to sign
+  ---
+  duration_ms: 10.250042
+  type: 'test'
+  ...
+# Subtest: blockhash watchdog ignores RPC trouble; only an explicit false expires the order
+ok 160 - blockhash watchdog ignores RPC trouble; only an explicit false expires the order
+  ---
+  duration_ms: 55.298375
+  type: 'test'
+  ...
+# Subtest: pause stops the blockhash watchdog and resume restarts it for the unsigned order
+ok 161 - pause stops the blockhash watchdog and resume restarts it for the unsigned order
+  ---
+  duration_ms: 51.74775
+  type: 'test'
+  ...
+# Subtest: a hold opened after the watchdog saw the hash die is cancelled at birth
+ok 162 - a hold opened after the watchdog saw the hash die is cancelled at birth
+  ---
+  duration_ms: 8.500792
+  type: 'test'
+  ...
+# Subtest: late payment is rejected before any Gate hold at 12000 ms
+ok 163 - late payment is rejected before any Gate hold at 12000 ms
+  ---
+  duration_ms: 2.7185
+  type: 'test'
+  ...
+# Subtest: payment exactly at the configured arrival threshold is accepted at 12000 ms
+ok 164 - payment exactly at the configured arrival threshold is accepted at 12000 ms
+  ---
+  duration_ms: 4.482417
+  type: 'test'
+  ...
+# Subtest: late payment is rejected before any Gate hold at 8000 ms
+ok 165 - late payment is rejected before any Gate hold at 8000 ms
+  ---
+  duration_ms: 2.4605
+  type: 'test'
+  ...
+# Subtest: payment exactly at the configured arrival threshold is accepted at 8000 ms
+ok 166 - payment exactly at the configured arrival threshold is accepted at 8000 ms
+  ---
+  duration_ms: 3.629292
+  type: 'test'
+  ...
+# Subtest: payment does not restart the absolute deadline and stalled RPC cannot keep approval open
+ok 167 - payment does not restart the absolute deadline and stalled RPC cannot keep approval open
+  ---
+  duration_ms: 10.250625
+  type: 'test'
+  ...
+# Subtest: synchronous audit time cannot consume the send reserve and still trigger POST
+ok 168 - synchronous audit time cannot consume the send reserve and still trigger POST
+  ---
+  duration_ms: 3.563
+  type: 'test'
+  ...
+# Subtest: pause never extends a deadline and old timer callbacks cannot expire a replacement
+ok 169 - pause never extends a deadline and old timer callbacks cannot expire a replacement
+  ---
+  duration_ms: 2.123167
+  type: 'test'
+  ...
+# Subtest: local browser library preserves generated legacy and v0 transaction bytes
+ok 170 - local browser library preserves generated legacy and v0 transaction bytes
+  ---
+  duration_ms: 28.850083
+  type: 'test'
+  ...
+# Subtest: public-only configuration starts paused without a wallet injection
+ok 171 - public-only configuration starts paused without a wallet injection
+  ---
+  duration_ms: 5.826
+  type: 'test'
+  ...
+# Subtest: loopback API enforces session, Host, Origin and fixed request shape
+ok 172 - loopback API enforces session, Host, Origin and fixed request shape
+  ---
+  duration_ms: 36.598125
+  type: 'test'
+  ...
+# Subtest: production approval maximum leaves a relay reserve inside the measured short order window
+ok 173 - production approval maximum leaves a relay reserve inside the measured short order window
+  ---
+  duration_ms: 3.177875
+  type: 'test'
+  ...
+# Subtest: two profiles and same Phantom select their fixed early payment budgets
+ok 174 - two profiles and same Phantom select their fixed early payment budgets
+  ---
+  duration_ms: 0.441083
+  type: 'test'
+  ...
+# Subtest: refund proof
+    # Subtest: a correct refund verifies, with both deltas exact
+    ok 1 - a correct refund verifies, with both deltas exact
+      ---
+      duration_ms: 1.460125
+      type: 'test'
+      ...
+    # Subtest: the funding transaction is never mistaken for its own refund
+    ok 2 - the funding transaction is never mistaken for its own refund
+      ---
+      duration_ms: 0.14125
+      type: 'test'
+      ...
+    # Subtest: a refund that predates the funding it returns is refused
+    ok 3 - a refund that predates the funding it returns is refused
+      ---
+      duration_ms: 0.140292
+      type: 'test'
+      ...
+    # Subtest: a wrong amount is refused, in either direction
+    ok 4 - a wrong amount is refused, in either direction
+      ---
+      duration_ms: 0.441792
+      type: 'test'
+      ...
+    # Subtest: the memo expectation must be declared, not guessed
+    ok 5 - the memo expectation must be declared, not guessed
+      ---
+      duration_ms: 0.202417
+      type: 'test'
+      ...
+    # Subtest: an unexpected memo is refused when none was declared
+    ok 6 - an unexpected memo is refused when none was declared
+      ---
+      duration_ms: 0.121333
+      type: 'test'
+      ...
+    # Subtest: a declared memo must match exactly
+    ok 7 - a declared memo must match exactly
+      ---
+      duration_ms: 0.24275
+      type: 'test'
+      ...
+    # Subtest: a refund to the wrong wallet is refused
+    ok 8 - a refund to the wrong wallet is refused
+      ---
+      duration_ms: 0.231458
+      type: 'test'
+      ...
+    # Subtest: a failed transaction never verifies
+    ok 9 - a failed transaction never verifies
+      ---
+      duration_ms: 0.318833
+      type: 'test'
+      ...
+    # Subtest: two refunds are both reported, never silently reduced to one
+    ok 10 - two refunds are both reported, never silently reduced to one
+      ---
+      duration_ms: 0.666584
+      type: 'test'
+      ...
+    1..10
+ok 175 - refund proof
+  ---
+  duration_ms: 5.076375
+  type: 'suite'
+  ...
+# Subtest: refund crash recovery
+    # Subtest: an unreadable journal halts: neither resend nor re-sign is safe
+    ok 1 - an unreadable journal halts: neither resend nor re-sign is safe
+      ---
+      duration_ms: 0.154666
+      type: 'test'
+      ...
+    # Subtest: a signature still within its blockhash validity is RESENT, never re-signed
+    ok 2 - a signature still within its blockhash validity is RESENT, never re-signed
+      ---
+      duration_ms: 0.059875
+      type: 'test'
+      ...
+    # Subtest: an expired blockhash makes signing fresh provably safe
+    ok 3 - an expired blockhash makes signing fresh provably safe
+      ---
+      duration_ms: 0.04825
+      type: 'test'
+      ...
+    # Subtest: the boundary is exclusive: still valid at exactly lastValidBlockHeight
+    ok 4 - the boundary is exclusive: still valid at exactly lastValidBlockHeight
+      ---
+      duration_ms: 0.044791
+      type: 'test'
+      ...
+    # Subtest: a transaction already on chain is reconciled, not resent
+    ok 5 - a transaction already on chain is reconciled, not resent
+      ---
+      duration_ms: 0.707834
+      type: 'test'
+      ...
+    # Subtest: unknown chain state halts rather than guessing
+    ok 6 - unknown chain state halts rather than guessing
+      ---
+      duration_ms: 0.078792
+      type: 'test'
+      ...
+    # Subtest: unknown expiry halts even when the chain says absent
+    ok 7 - unknown expiry halts even when the chain says absent
+      ---
+      duration_ms: 0.05775
+      type: 'test'
+      ...
+    # Subtest: a readable journal with no signature is the only provably fresh start
+    ok 8 - a readable journal with no signature is the only provably fresh start
+      ---
+      duration_ms: 0.050584
+      type: 'test'
+      ...
+    1..8
+ok 176 - refund crash recovery
+  ---
+  duration_ms: 1.377875
+  type: 'suite'
+  ...
+# Subtest: getTransaction encoding
+    # Subtest: the client asks for jsonParsed explicitly
+    ok 1 - the client asks for jsonParsed explicitly
+      ---
+      duration_ms: 355.210334
+      type: 'test'
+      ...
+    # Subtest: a correct payment served in the default encoding is still proven and confirmed
+    ok 2 - a correct payment served in the default encoding is still proven and confirmed
+      ---
+      duration_ms: 340.031541
+      type: 'test'
+      ...
+    1..2
+ok 177 - getTransaction encoding
+  ---
+  duration_ms: 696.26875
+  type: 'suite'
+  ...
+# Subtest: the JSON-RPC request body, as it goes on the wire
+    # Subtest: getTransaction asks for jsonParsed, explicitly and always
+    ok 1 - getTransaction asks for jsonParsed, explicitly and always
+      ---
+      duration_ms: 28.064458
+      type: 'test'
+      ...
+    # Subtest: the default commitment is still explicit in the request
+    ok 2 - the default commitment is still explicit in the request
+      ---
+      duration_ms: 8.527167
+      type: 'test'
+      ...
+    # Subtest: every method that parses a response asks for a parsed response
+    ok 3 - every method that parses a response asks for a parsed response
+      ---
+      duration_ms: 7.393584
+      type: 'test'
+      ...
+    # Subtest: getSignaturesForAddress names its commitment and its limit
+    ok 4 - getSignaturesForAddress names its commitment and its limit
+      ---
+      duration_ms: 4.727167
+      type: 'test'
+      ...
+    # Subtest: getAccountInfo and getSlot name their commitment
+    ok 5 - getAccountInfo and getSlot name their commitment
+      ---
+      duration_ms: 4.590834
+      type: 'test'
+      ...
+    1..5
+ok 178 - the JSON-RPC request body, as it goes on the wire
+  ---
+  duration_ms: 54.743584
+  type: 'suite'
+  ...
+# Subtest: base58
+    # Subtest: the System program id is 32 zero bytes, both ways
+    ok 1 - the System program id is 32 zero bytes, both ways
+      ---
+      duration_ms: 1.665958
+      type: 'test'
+      ...
+    # Subtest: known vectors
+    ok 2 - known vectors
+      ---
+      duration_ms: 0.227875
+      type: 'test'
+      ...
+    # Subtest: random round trips, including leading zero bytes
+    ok 3 - random round trips, including leading zero bytes
+      ---
+      duration_ms: 12.463292
+      type: 'test'
+      ...
+    # Subtest: invalid characters throw
+    ok 4 - invalid characters throw
+      ---
+      duration_ms: 0.519
+      type: 'test'
+      ...
+    # Subtest: decodePublicKey insists on 32 bytes
+    ok 5 - decodePublicKey insists on 32 bytes
+      ---
+      duration_ms: 0.274
+      type: 'test'
+      ...
+    1..5
+ok 179 - base58
+  ---
+  duration_ms: 16.158083
+  type: 'suite'
+  ...
+# Subtest: describeInstructions
+    # Subtest: System transfer: lamports as BigInt, [from, to]
+    ok 1 - System transfer: lamports as BigInt, [from, to]
+      ---
+      duration_ms: 4.541583
+      type: 'test'
+      ...
+    # Subtest: System createAccount
+    ok 2 - System createAccount
+      ---
+      duration_ms: 1.040542
+      type: 'test'
+      ...
+    # Subtest: SPL transferChecked: [source, mint, destination, authority], amount and decimals
+    ok 3 - SPL transferChecked: [source, mint, destination, authority], amount and decimals
+      ---
+      duration_ms: 1.444208
+      type: 'test'
+      ...
+    # Subtest: Token-2022 is recognised as its own program
+    ok 4 - Token-2022 is recognised as its own program
+      ---
+      duration_ms: 1.842542
+      type: 'test'
+      ...
+    # Subtest: SPL approve and approveChecked: delegate and amount
+    ok 5 - SPL approve and approveChecked: delegate and amount
+      ---
+      duration_ms: 1.366291
+      type: 'test'
+      ...
+    # Subtest: legacy SPL transfer: [source, destination, authority], no mint
+    ok 6 - legacy SPL transfer: [source, destination, authority], no mint
+      ---
+      duration_ms: 0.805208
+      type: 'test'
+      ...
+    # Subtest: setAuthority, closeAccount, syncNative
+    ok 7 - setAuthority, closeAccount, syncNative
+      ---
+      duration_ms: 0.698458
+      type: 'test'
+      ...
+    # Subtest: ATA create and createIdempotent
+    ok 8 - ATA create and createIdempotent
+      ---
+      duration_ms: 0.926833
+      type: 'test'
+      ...
+    # Subtest: compute budget pair and memo
+    ok 9 - compute budget pair and memo
+      ---
+      duration_ms: 0.721958
+      type: 'test'
+      ...
+    # Subtest: accounts from a lookup table are resolved into the description
+    ok 10 - accounts from a lookup table are resolved into the description
+      ---
+      duration_ms: 1.370833
+      type: 'test'
+      ...
+    # Subtest: unknown program and unknown tags are kind "unknown" without amounts
+    ok 11 - unknown program and unknown tags are kind "unknown" without amounts
+      ---
+      duration_ms: 0.683125
+      type: 'test'
+      ...
+    # Subtest: truncated data or missing accounts of a known instruction throw
+    ok 12 - truncated data or missing accounts of a known instruction throw
+      ---
+      duration_ms: 1.343125
+      type: 'test'
+      ...
+    1..12
+ok 180 - describeInstructions
+  ---
+  duration_ms: 18.348375
+  type: 'suite'
+  ...
+# Subtest: simulateWithDeltas
+    # Subtest: request shapes: token-account discovery, pre-state, simulation
+    ok 1 - request shapes: token-account discovery, pre-state, simulation
+      ---
+      duration_ms: 3.027792
+      type: 'test'
+      ...
+    # Subtest: lamport delta of the wallet, as BigInt
+    ok 2 - lamport delta of the wallet, as BigInt
+      ---
+      duration_ms: 0.4255
+      type: 'test'
+      ...
+    # Subtest: two token mints (one per token program), decimals read from mint data
+    ok 3 - two token mints (one per token program), decimals read from mint data
+      ---
+      duration_ms: 2.503042
+      type: 'test'
+      ...
+    # Subtest: a token account that does not exist before and is owned by the wallet after counts as own
+    ok 4 - a token account that does not exist before and is owned by the wallet after counts as own
+      ---
+      duration_ms: 0.877083
+      type: 'test'
+      ...
+    # Subtest: a destination token account owned by someone else is not the wallet's
+    ok 5 - a destination token account owned by someone else is not the wallet's
+      ---
+      duration_ms: 1.279709
+      type: 'test'
+      ...
+    # Subtest: an account handed to another owner, or closed, counts down to zero
+    ok 6 - an account handed to another owner, or closed, counts down to zero
+      ---
+      duration_ms: 0.771959
+      type: 'test'
+      ...
+    # Subtest: a simulation err is passed through, not thrown
+    ok 7 - a simulation err is passed through, not thrown
+      ---
+      duration_ms: 0.292542
+      type: 'test'
+      ...
+    # Subtest: an RPC throw at any step rejects (the caller fails closed)
+    ok 8 - an RPC throw at any step rejects (the caller fails closed)
+      ---
+      duration_ms: 0.958125
+      type: 'test'
+      ...
+    # Subtest: malformed responses reject
+    ok 9 - malformed responses reject
+      ---
+      duration_ms: 0.939584
+      type: 'test'
+      ...
+    # Subtest: bad arguments and an oversized watch set are refused, never trimmed
+    ok 10 - bad arguments and an oversized watch set are refused, never trimmed
+      ---
+      duration_ms: 6.598792
+      type: 'test'
+      ...
+    1..10
+ok 181 - simulateWithDeltas
+  ---
+  duration_ms: 19.538042
+  type: 'suite'
+  ...
+# Subtest: SolanaRpc { url }
+    # Subtest: uses `url` without SOLFRONTIER_RPC_URL
+    ok 1 - uses `url` without SOLFRONTIER_RPC_URL
+      ---
+      duration_ms: 30.387125
+      type: 'test'
+      ...
+    # Subtest: `url` wins over SOLFRONTIER_RPC_URL
+    ok 2 - `url` wins over SOLFRONTIER_RPC_URL
+      ---
+      duration_ms: 7.733958
+      type: 'test'
+      ...
+    # Subtest: without `url`, the env var is still required
+    ok 3 - without `url`, the env var is still required
+      ---
+      duration_ms: 0.216708
+      type: 'test'
+      ...
+    # Subtest: the explicit url never appears in an error
+    ok 4 - the explicit url never appears in an error
+      ---
+      duration_ms: 2.38775
+      type: 'test'
+      ...
+    1..4
+ok 182 - SolanaRpc { url }
+  ---
+  duration_ms: 40.94575
+  type: 'suite'
+  ...
+# Subtest: decodeTransaction
+    # Subtest: legacy System transfer decodes to what was encoded
+    ok 1 - legacy System transfer decodes to what was encoded
+      ---
+      duration_ms: 4.620834
+      type: 'test'
+      ...
+    # Subtest: v0 with one lookup table (writable + readonly lookups)
+    ok 2 - v0 with one lookup table (writable + readonly lookups)
+      ---
+      duration_ms: 2.693625
+      type: 'test'
+      ...
+    # Subtest: accepts a Buffer and a subarray view
+    ok 3 - accepts a Buffer and a subarray view
+      ---
+      duration_ms: 0.7535
+      type: 'test'
+      ...
+    # Subtest: rejects malformed input
+    ok 4 - rejects malformed input
+      ---
+      duration_ms: 1.763709
+      type: 'test'
+      ...
+    # Subtest: rejects structural violations the runtime would refuse
+    ok 5 - rejects structural violations the runtime would refuse
+      ---
+      duration_ms: 2.004667
+      type: 'test'
+      ...
+    1..5
+ok 183 - decodeTransaction
+  ---
+  duration_ms: 12.998792
+  type: 'suite'
+  ...
+# Subtest: messageSha256
+    # Subtest: stable, and changes when any message byte changes
+    ok 1 - stable, and changes when any message byte changes
+      ---
+      duration_ms: 2.560542
+      type: 'test'
+      ...
+    1..1
+ok 184 - messageSha256
+  ---
+  duration_ms: 2.817291
+  type: 'suite'
+  ...
+# Subtest: verifySignatures
+    # Subtest: valid
+    ok 1 - valid
+      ---
+      duration_ms: 1.495417
+      type: 'test'
+      ...
+    # Subtest: tampered message
+    ok 2 - tampered message
+      ---
+      duration_ms: 0.550292
+      type: 'test'
+      ...
+    # Subtest: signature by the wrong key
+    ok 3 - signature by the wrong key
+      ---
+      duration_ms: 0.684166
+      type: 'test'
+      ...
+    # Subtest: missing (all-zero) signature
+    ok 4 - missing (all-zero) signature
+      ---
+      duration_ms: 0.818208
+      type: 'test'
+      ...
+    1..4
+ok 185 - verifySignatures
+  ---
+  duration_ms: 3.925458
+  type: 'suite'
+  ...
+# Subtest: resolveAccountKeys
+    # Subtest: legacy: static keys and header writability
+    ok 1 - legacy: static keys and header writability
+      ---
+      duration_ms: 0.3865
+      type: 'test'
+      ...
+    # Subtest: v0: static, then writable lookups, then readonly lookups
+    ok 2 - v0: static, then writable lookups, then readonly lookups
+      ---
+      duration_ms: 0.471417
+      type: 'test'
+      ...
+    # Subtest: two lookup tables: all writables of both precede all readonlys
+    ok 3 - two lookup tables: all writables of both precede all readonlys
+      ---
+      duration_ms: 0.334125
+      type: 'test'
+      ...
+    # Subtest: missing table or index past the end throws
+    ok 4 - missing table or index past the end throws
+      ---
+      duration_ms: 0.554542
+      type: 'test'
+      ...
+    1..4
+ok 186 - resolveAccountKeys
+  ---
+  duration_ms: 1.828667
+  type: 'suite'
+  ...
+# Subtest: address lookup tables
+    # Subtest: parseLookupTable reads the keys after the 56-byte meta
+    ok 1 - parseLookupTable reads the keys after the 56-byte meta
+      ---
+      duration_ms: 0.312541
+      type: 'test'
+      ...
+    # Subtest: parseLookupTable rejects malformed data
+    ok 2 - parseLookupTable rejects malformed data
+      ---
+      duration_ms: 0.127
+      type: 'test'
+      ...
+    # Subtest: fetchLookupTables uses getMultipleAccounts base64 and checks the owner
+    ok 3 - fetchLookupTables uses getMultipleAccounts base64 and checks the owner
+      ---
+      duration_ms: 0.559666
+      type: 'test'
+      ...
+    # Subtest: fetchLookupTables fails closed
+    ok 4 - fetchLookupTables fails closed
+      ---
+      duration_ms: 0.47525
+      type: 'test'
+      ...
+    1..4
+ok 187 - address lookup tables
+  ---
+  duration_ms: 1.5475
+  type: 'suite'
+  ...
+# Subtest: scripts/hackathon/decode-tx.mjs (offline)
+    # Subtest: prints a decoded summary from argv, lookups left unresolved
+    ok 1 - prints a decoded summary from argv, lookups left unresolved
+      ---
+      duration_ms: 99.523958
+      type: 'test'
+      ...
+    # Subtest: reads stdin; bad input exits non-zero
+    ok 2 - reads stdin; bad input exits non-zero
+      ---
+      duration_ms: 286.515
+      type: 'test'
+      ...
+    1..2
+ok 188 - scripts/hackathon/decode-tx.mjs (offline)
+  ---
+  duration_ms: 386.154417
+  type: 'suite'
+  ...
+# Subtest: money math never uses floats
+    # Subtest: exact conversions at both mint precisions
+    ok 1 - exact conversions at both mint precisions
+      ---
+      duration_ms: 0.869458
+      type: 'test'
+      ...
+    # Subtest: values a float would corrupt survive intact
+    ok 2 - values a float would corrupt survive intact
+      ---
+      duration_ms: 0.098959
+      type: 'test'
+      ...
+    # Subtest: rejects more precision than the mint carries
+    ok 3 - rejects more precision than the mint carries
+      ---
+      duration_ms: 0.153167
+      type: 'test'
+      ...
+    # Subtest: rejects non-numeric and negative input
+    ok 4 - rejects non-numeric and negative input
+      ---
+      duration_ms: 0.088875
+      type: 'test'
+      ...
+    1..4
+ok 189 - money math never uses floats
+  ---
+  duration_ms: 2.156792
+  type: 'suite'
+  ...
+# Subtest: draft message binding
+    # Subtest: the derived message encodes the threshold as a percentage
+    ok 1 - the derived message encodes the threshold as a percentage
+      ---
+      duration_ms: 0.111833
+      type: 'test'
+      ...
+    # Subtest: draftParams pins the rail and carries only the varying fields
+    ok 2 - draftParams pins the rail and carries only the varying fields
+      ---
+      duration_ms: 0.137208
+      type: 'test'
+      ...
+    # Subtest: an explicit message overrides the derived one verbatim
+    ok 3 - an explicit message overrides the derived one verbatim
+      ---
+      duration_ms: 0.19625
+      type: 'test'
+      ...
+    # Subtest: invalid amounts and thresholds are usage errors
+    ok 4 - invalid amounts and thresholds are usage errors
+      ---
+      duration_ms: 0.551208
+      type: 'test'
+      ...
+    1..4
+ok 190 - draft message binding
+  ---
+  duration_ms: 1.290083
+  type: 'suite'
+  ...
+# Subtest: schema-driven coercion
+    # Subtest: coerces each declared JSON type
+    ok 1 - coerces each declared JSON type
+      ---
+      duration_ms: 1.212209
+      type: 'test'
+      ...
+    # Subtest: rejects values that do not fit the declared type
+    ok 2 - rejects values that do not fit the declared type
+      ---
+      duration_ms: 0.3105
+      type: 'test'
+      ...
+    # Subtest: buildArguments enforces required fields and rejects unknown keys
+    ok 3 - buildArguments enforces required fields and rejects unknown keys
+      ---
+      duration_ms: 0.30925
+      type: 'test'
+      ...
+    # Subtest: a schema with no declared properties accepts anything
+    ok 4 - a schema with no declared properties accepts anything
+      ---
+      duration_ms: 0.059584
+      type: 'test'
+      ...
+    1..4
+ok 191 - schema-driven coercion
+  ---
+  duration_ms: 2.099542
+  type: 'suite'
+  ...
+# Subtest: guardrails
+    # Subtest: acceptance database paths are refused
+    ok 1 - acceptance database paths are refused
+      ---
+      duration_ms: 0.394125
+      type: 'test'
+      ...
+    # Subtest: any .db under an acceptance directory is refused
+    ok 2 - any .db under an acceptance directory is refused
+      ---
+      duration_ms: 0.153042
+      type: 'test'
+      ...
+    # Subtest: an ordinary scratch path is allowed
+    ok 3 - an ordinary scratch path is allowed
+      ---
+      duration_ms: 0.170416
+      type: 'test'
+      ...
+    # Subtest: secret-bearing keys in a config file are refused
+    ok 4 - secret-bearing keys in a config file are refused
+      ---
+      duration_ms: 12.081666
+      type: 'test'
+      ...
+    # Subtest: serverArgs containing watch are refused
+    ok 5 - serverArgs containing watch are refused
+      ---
+      duration_ms: 1.660042
+      type: 'test'
+      ...
+    # Subtest: a non-numeric timeout is a usage error
+    ok 6 - a non-numeric timeout is a usage error
+      ---
+      duration_ms: 0.656833
+      type: 'test'
+      ...
+    # Subtest: config reports env presence without ever exposing values
+    ok 7 - config reports env presence without ever exposing values
+      ---
+      duration_ms: 0.154083
+      type: 'test'
+      ...
+    1..7
+ok 192 - guardrails
+  ---
+  duration_ms: 15.511166
+  type: 'suite'
+  ...
+# Subtest: redaction
+    # Subtest: removes the configured endpoint and any other URL
+    ok 1 - removes the configured endpoint and any other URL
+      ---
+      duration_ms: 0.172375
+      type: 'test'
+      ...
+    1..1
+ok 193 - redaction
+  ---
+  duration_ms: 0.220541
+  type: 'suite'
+  ...
+# Subtest: Solend APR math
+    # Subtest: utilization is exact at the 50% point
+    ok 1 - utilization is exact at the 50% point
+      ---
+      duration_ms: 0.094291
+      type: 'test'
+      ...
+    # Subtest: supply APR with no protocol take is borrowRate * utilization
+    ok 2 - supply APR with no protocol take is borrowRate * utilization
+      ---
+      duration_ms: 0.112625
+      type: 'test'
+      ...
+    # Subtest: a protocol take rate reduces supply APR proportionally
+    ok 3 - a protocol take rate reduces supply APR proportionally
+      ---
+      duration_ms: 0.055709
+      type: 'test'
+      ...
+    # Subtest: zero borrows means zero utilization and zero supply APR
+    ok 4 - zero borrows means zero utilization and zero supply APR
+      ---
+      duration_ms: 0.047667
+      type: 'test'
+      ...
+    1..4
+ok 194 - Solend APR math
+  ---
+  duration_ms: 0.383042
+  type: 'suite'
+  ...
+# Subtest: audit claim extraction
+    # Subtest: finds the transaction signature exactly once
+    ok 1 - finds the transaction signature exactly once
+      ---
+      duration_ms: 0.564084
+      type: 'test'
+      ...
+    # Subtest: finds the asserted slot
+    ok 2 - finds the asserted slot
+      ---
+      duration_ms: 0.281458
+      type: 'test'
+      ...
+    # Subtest: parses the memo into intent id and rule hash
+    ok 3 - parses the memo into intent id and rule hash
+      ---
+      duration_ms: 0.121125
+      type: 'test'
+      ...
+    # Subtest: parses balance rows with thousands separators
+    ok 4 - parses balance rows with thousands separators
+      ---
+      duration_ms: 0.072042
+      type: 'test'
+      ...
+    # Subtest: typographic minus and non-breaking spaces are normalized
+    ok 5 - typographic minus and non-breaking spaces are normalized
+      ---
+      duration_ms: 0.196833
+      type: 'test'
+      ...
+    # Subtest: a document with no signatures yields nothing rather than throwing
+    ok 6 - a document with no signatures yields nothing rather than throwing
+      ---
+      duration_ms: 0.051833
+      type: 'test'
+      ...
+    1..6
+ok 195 - audit claim extraction
+  ---
+  duration_ms: 1.37975
+  type: 'suite'
+  ...
+# Subtest: complete finalized proof binds approval, order minimum, ledger and owner balances
+ok 196 - complete finalized proof binds approval, order minimum, ledger and owner balances
+  ---
+  duration_ms: 14.405625
+  type: 'test'
+  ...
+# Subtest: new USDC account has zero prior balance and loaded index maps correctly
+ok 197 - new USDC account has zero prior balance and loaded index maps correctly
+  ---
+  duration_ms: 1.573792
+  type: 'test'
+  ...
+# Subtest: sums all owned USDC accounts while ignoring another owner
+ok 198 - sums all owned USDC accounts while ignoring another owner
+  ---
+  duration_ms: 0.963916
+  type: 'test'
+  ...
+# Subtest: owner authority changes contribute negative owned balance
+ok 199 - owner authority changes contribute negative owned balance
+  ---
+  duration_ms: 1.07175
+  type: 'test'
+  ...
+# Subtest: closed WSOL account contributes full prior token balance
+ok 200 - closed WSOL account contributes full prior token balance
+  ---
+  duration_ms: 1.40075
+  type: 'test'
+  ...
+# Subtest: cap includes spent WSOL and fee is not counted twice
+ok 201 - cap includes spent WSOL and fee is not counted twice
+  ---
+  duration_ms: 4.050625
+  type: 'test'
+  ...
+# Subtest: received USDC below exact approved minimum fails
+ok 202 - received USDC below exact approved minimum fails
+  ---
+  duration_ms: 1.504375
+  type: 'test'
+  ...
+# Subtest: nonfinalized status does not fetch transaction or retry
+ok 203 - nonfinalized status does not fetch transaction or retry
+  ---
+  duration_ms: 1.814083
+  type: 'test'
+  ...
+# Subtest: null finalized transaction is not treated as a success
+ok 204 - null finalized transaction is not treated as a success
+  ---
+  duration_ms: 1.908334
+  type: 'test'
+  ...
+# Subtest: wrong RPC network stops before status lookup
+ok 205 - wrong RPC network stops before status lookup
+  ---
+  duration_ms: 1.842958
+  type: 'test'
+  ...
+# Subtest: failed finalized status is never called successful
+ok 206 - failed finalized status is never called successful
+  ---
+  duration_ms: 0.916292
+  type: 'test'
+  ...
+# Subtest: slot mismatch fails independently from matching message
+ok 207 - slot mismatch fails independently from matching message
+  ---
+  duration_ms: 1.190166
+  type: 'test'
+  ...
+# Subtest: valid but different signed ledger transaction cannot replace candidate
+ok 208 - valid but different signed ledger transaction cannot replace candidate
+  ---
+  duration_ms: 2.12425
+  type: 'test'
+  ...
+# Subtest: ledger signatures cannot be corrupted
+ok 209 - ledger signatures cannot be corrupted
+  ---
+  duration_ms: 1.701708
+  type: 'test'
+  ...
+# Subtest: execute attempt alone cannot pass audit transaction verification
+ok 210 - execute attempt alone cannot pass audit transaction verification
+  ---
+  duration_ms: 1.082625
+  type: 'test'
+  ...
+# Subtest: extra transaction claim cannot silently pass strict candidate audit
+ok 211 - extra transaction claim cannot silently pass strict candidate audit
+  ---
+  duration_ms: 1.188041
+  type: 'test'
+  ...
+# Subtest: minimum bound must share request and exact message
+ok 212 - minimum bound must share request and exact message
+  ---
+  duration_ms: 0.667541
+  type: 'test'
+  ...
+# Subtest: recorded approver signature is independently checked
+ok 213 - recorded approver signature is independently checked
+  ---
+  duration_ms: 1.142375
+  type: 'test'
+  ...
+# Subtest: broken audit hash chain stops before network
+ok 214 - broken audit hash chain stops before network
+  ---
+  duration_ms: 0.603667
+  type: 'test'
+  ...
+# Subtest: missing owner, duplicate indexes, and token decimals fail closed
+ok 215 - missing owner, duplicate indexes, and token decimals fail closed
+  ---
+  duration_ms: 2.570792
+  type: 'test'
+  ...
+# Subtest: incomplete loaded addresses and unsafe lamports fail closed
+ok 216 - incomplete loaded addresses and unsafe lamports fail closed
+  ---
+  duration_ms: 1.159417
+  type: 'test'
+  ...
+# Subtest: RPC error messages containing credentials never leave public result
+ok 217 - RPC error messages containing credentials never leave public result
+  ---
+  duration_ms: 1.200916
+  type: 'test'
+  ...
+# Subtest: public signature input rejects malformed strings without echoing input
+ok 218 - public signature input rejects malformed strings without echoing input
+  ---
+  duration_ms: 0.106708
+  type: 'test'
+  ...
+1..218
+# tests 721
+# suites 97
+# pass 721
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 18405.297209

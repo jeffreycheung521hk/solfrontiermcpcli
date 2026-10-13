@@ -1,0 +1,62 @@
+{
+  "recordedDateJst": "2026-10-12",
+  "purpose": "Provenance of the local source snapshot used for the mainnet acceptance. Repo scripts are a path/config portability port, tested offline; the recorded live transaction used the original workspace files.",
+  "originalLocalSources": [
+    {
+      "file": "work/phantom-keyless-runtime.mjs",
+      "sha256": "4d23807d79e23001b8d09077b8b93c4d1eacd539d2a4dc354f07514058a87ab5"
+    },
+    {
+      "file": "work/phantom-keyless-server.mjs",
+      "sha256": "76234292efce44f610bb3b0ec57a56dffbf7c7b2b171a62d3fb7dec2886b19bd"
+    },
+    {
+      "file": "work/phantom-keyless-page.mjs",
+      "sha256": "bb84130eeb780dd75fba0b2b2ade5f244fefd6d3fc7c5d98cbed0988cd9750c9"
+    },
+    {
+      "file": "work/verify-phantom-mainnet.mjs",
+      "sha256": "8773f3405220abebc7cd0875f453bb0dec27838fdfafcf617346b0befbbe1ebf"
+    },
+    {
+      "file": "work/jupiter-blockhash-window.mjs",
+      "sha256": "c58d984061814d392cba8aa97d59bf7ccf1057efcd061756d0af665a3434df9b"
+    },
+    {
+      "file": "work/audit-last-attempt.mjs",
+      "sha256": "7fd597bd77859120f29a21d2acb92c0d5d836ff28b794c7e469e2db21de158e7"
+    },
+    {
+      "file": "work/phantom-keyless-runtime-check.mjs",
+      "sha256": "c768cfe0711891c44478bf6c2860025aa9277ce968bdc5621f5142448bbec6bd"
+    },
+    {
+      "file": "work/phantom-keyless-server-check.mjs",
+      "sha256": "5ca49f181a948bdfebb92dd3687ff3e4c6cd7ba16e0209a9b996e99d146f69b2"
+    },
+    {
+      "file": "work/phantom-keyless-page-expiry-check.mjs",
+      "sha256": "04b12dd8befc1fea15cde021ed969e73143c7090bbad74b0f97fe8afc980d19f"
+    },
+    {
+      "file": "work/verify-phantom-mainnet-check.mjs",
+      "sha256": "5549e6381357adaaef4ada75b5658e58b7dfea823ee0e77ebf5e2d83be5cd5b2"
+    },
+    {
+      "file": "work/jupiter-blockhash-window-check.mjs",
+      "sha256": "e84a9b5f76774287a589bfeb5fb66e90a7e1357e30e2df024a0da6bc3b0924a7"
+    },
+    {
+      "file": "work/audit-last-attempt-check.mjs",
+      "sha256": "639434a2fb3992b6eedd66118c65aae0fa81f2826d774425728e11027474f5e6"
+    }
+  ],
+  "browserBridge": {
+    "package": "@solana/web3.js",
+    "version": "1.98.0",
+    "file": "lib/index.iife.min.js",
+    "sha256": "89c3d6c27cae93882d78153ef7f23c8d50f53f5e3f0b72666bb909c6a4dc9fac",
+    "role": "Externally supplied optional companion browser bridge; not a Gate core or npm package dependency in this repository"
+  },
+  "coreRuntimeDependencies": []
+}

@@ -1,0 +1,57 @@
+{
+  "_comment": "Reference-only snapshot of the policy used for the 2026-10-12 mainnet proof. Public addresses identify that historical run. The Phantom companion server replaces the runtime command and audit path; it loads no wallet file and spawns no downstream process. This file alone is not a general gate-run configuration.",
+  "cluster": "mainnet-beta",
+  "upstreamRpcEnv": "SFGATE_UPSTREAM_RPC_URL",
+  "approver": "6N7UYBzKmdHYtUssw45QDbGd1No2xUVTFkkVwnovTd3M",
+  "servers": {
+    "jup": {
+      "command": "node",
+      "timeoutMs": 120000
+    }
+  },
+  "lists": {},
+  "tools": {
+    "jup.execute-ultra-order": {
+      "mode": "bound",
+      "txArg": "transaction",
+      "txArgEncoding": "base64"
+    },
+    "*": "deny"
+  },
+  "tx": {
+    "_comment": "Ultra may route through programs we cannot list in advance, so unknown programs warn (the human sees them) and the outflow caps are the hard bound.",
+    "programs": [
+      "11111111111111111111111111111111",
+      "ComputeBudget111111111111111111111111111111",
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+      "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+    ],
+    "unknownProgram": "warn",
+    "maxOutflow": {
+      "SOL": 0.003,
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 0
+    },
+    "unknownMintOutflow": "deny",
+    "destinations": "any",
+    "denyTokenDelegation": true,
+    "denyLegacyTokenTransfer": true,
+    "approval": "always"
+  },
+  "approval": {
+    "method": "wallet-signature",
+    "port": 8787,
+    "timeoutSec": 12,
+    "openBrowser": false,
+    "notify": false
+  },
+  "rpcCheckpoint": {
+    "port": 18899
+  },
+  "audit": {
+    "path": "./audit.jsonl"
+  },
+  "showDeniedTools": false
+}
