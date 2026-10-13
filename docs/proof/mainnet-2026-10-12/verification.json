@@ -1,0 +1,82 @@
+{
+  "signature": "55sa9vBAXo1Qh8jYgrqzWf1uZNcGMxyCtM5UVHUcxEEQrJFr7P6zqLFYpA2xort9Ku85Nzt3zL51YW9g2ZmNkDdh",
+  "wallet": "J3rFAMrr2GDNhDg2x3Cn2K9iNKyrGh4WcqbmNG9xKaRj",
+  "approver": "6N7UYBzKmdHYtUssw45QDbGd1No2xUVTFkkVwnovTd3M",
+  "network": "mainnet-beta",
+  "commitment": "finalized",
+  "explorerUrl": "https://explorer.solana.com/tx/55sa9vBAXo1Qh8jYgrqzWf1uZNcGMxyCtM5UVHUcxEEQrJFr7P6zqLFYpA2xort9Ku85Nzt3zL51YW9g2ZmNkDdh",
+  "automaticRetries": 0,
+  "simulationRequests": 0,
+  "executionRequests": 0,
+  "status": "VERIFIED",
+  "finalized": true,
+  "slot": 455979197,
+  "blockTime": "2026-10-12T08:22:30.000Z",
+  "messageSha256": "671c240aa69419cd25a6541f8c803172f932cc2f43e8c0c444b42b574d54b67e",
+  "minimumUsdcRaw": "111463",
+  "minimumUsdc": "0.111463",
+  "solOutflowLamports": "2494861",
+  "solOutflowSol": "0.002494861",
+  "solOutflowCapLamports": "3000000",
+  "feeLamports": "6421",
+  "balances": {
+    "nativePreLamports": "50000000",
+    "nativePostLamports": "47505139",
+    "nativeDeltaLamports": "-2494861",
+    "ownerWsolDeltaRaw": "0",
+    "totalSolAssetDeltaLamports": "-2494861",
+    "totalSolAssetDeltaSol": "-0.002494861",
+    "usdcDeltaRaw": "111685",
+    "usdcDeltaUsdc": "0.111685",
+    "tokenAccounts": [
+      {
+        "account": "Bj71t567YLuKX6qUZYDZwgmTLxtCFKMZR37AASDkP8oy",
+        "accountIndex": 2,
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "decimals": 6,
+        "preRaw": "0",
+        "postRaw": "111685",
+        "deltaRaw": "111685"
+      }
+    ]
+  },
+  "audit": {
+    "verdict": "VERIFIED",
+    "chain": {
+      "ok": true,
+      "records": 35
+    },
+    "counts": {
+      "passed": 2,
+      "failed": 0,
+      "unverified": 0
+    },
+    "candidate": {
+      "status": "PASS",
+      "lines": [
+        35
+      ],
+      "callIds": [
+        "2ab0d98e947d"
+      ],
+      "approvedMessageSha256": [
+        "671c240aa69419cd25a6541f8c803172f932cc2f43e8c0c444b42b574d54b67e"
+      ],
+      "observedMessageSha256": "671c240aa69419cd25a6541f8c803172f932cc2f43e8c0c444b42b574d54b67e"
+    },
+    "executeAttemptLine": 34,
+    "orderReviewLine": 29,
+    "approvedLine": 33
+  },
+  "checks": {
+    "mainnetGenesis": true,
+    "finalizedStatus": true,
+    "ledgerSignatures": true,
+    "exactApprovedMessage": true,
+    "approverSignature": true,
+    "minimumUsdc": true,
+    "nativeAndWrappedSolCap": true,
+    "strictAudit": true
+  },
+  "checkedAt": "2026-10-12T08:23:28.799Z"
+}

@@ -1,3 +1,51 @@
+# SolFrontier Gate
+
+**An MCP firewall between AI agents and Solana wallets.** Gate applies pass / bound / deny policy to tool calls, decodes and simulates transaction-bearing requests, and holds them for a human wallet-signature approval. Decisions are recorded in a hash-chained audit log. The Node core uses built-ins only and has zero npm runtime dependencies.
+
+**Mainnet proof, 2026-10-12:** a human signed **0.001 SOL → USDC** in Phantom, a separate Gate Approver approved the exact message, and Jupiter executed the swap. Finalized receipt: **0.111685 USDC**; total SOL outflow **0.002494861**, below the **0.003 SOL** cap. [Evidence and scope](docs/proof/mainnet-2026-10-12/proof.md) · [Solana Explorer](https://explorer.solana.com/tx/55sa9vBAXo1Qh8jYgrqzWf1uZNcGMxyCtM5UVHUcxEEQrJFr7P6zqLFYpA2xort9Ku85Nzt3zL51YW9g2ZmNkDdh).
+
+This mainnet run used a Phantom payer page and a Jupiter HTTP adapter around Gate's tool-argument pipeline. It does not claim a Claude Desktop or unmodified Jupiter MCP mainnet session. The optional payer page uses an externally supplied web3 browser bundle; it is separate from the built-in-only Node core.
+
+## Gate paths
+
+```text
+Agent host → Gate tool policy → downstream MCP tools
+               └ transaction argument → review → human approval → forward
+Downstream → loopback RPC checkpoint → review → human approval → send
+```
+
+- Unlisted tools are denied and hidden; permitted calls can be bounded by argument constraints.
+- Transactions are reviewed as tool arguments or intercepted at the loopback RPC checkpoint.
+- Approval binds the exact message hash, hold, cluster, summary and expiry; a changed message needs a new approval.
+- Errors, rejected signatures, cancellation and expiry refuse execution.
+- Audit records precede effects, and landed message hashes can be checked against the approval.
+
+[Build specification](docs/hackathon/SPEC.md) · [Devnet MCP setup and hermetic attack demo](scripts/demo/GATE.md) · [Phantom companion and timing fix](scripts/hackathon/phantom/README.md) · [Technical video script](docs/hackathon/DEMO-SCRIPT.md).
+
+The mainnet companion uses a shared 20-second local order cap, a 9-second signing-start cutoff, a 12-second payer-signature acceptance cutoff, and an approval hold of at most 12 seconds within the remaining window. It reserves 2 seconds before execution and keeps chain freshness checks. Expiry stops the attempt; quote refresh and another attempt require manual action.
+
+## Gate limits
+
+- **L1** The RPC checkpoint only sees transactions sent through it. A malicious downstream can
+  ignore `RPC_URL` and talk to a public endpoint, or post to a third-party API (Jupiter Ultra
+  does this by design — which is why tool-argument review exists). Against a malicious server
+  the bound is the petty-cash balance.
+- **L2** A malicious downstream can exfiltrate the petty-cash key. Same bound.
+- **L3** Simulation predicts; it does not guarantee. State can change between simulation and
+  landing. The human approves exact message bytes; slippage protection belongs to the
+  transaction itself.
+- **L4** Cross-program invocations are not decoded for display. Policy relies on simulated
+  balance deltas of the wallet's own accounts for net effect.
+- **L5** An agent with control of the user's browser or desktop could press the wallet's
+  approve button. Do not give the agent computer-use while Gate is guarding funds.
+- **L6** One approver, one machine. Multi-approver (Squads) is roadmap.
+
+## Gate lineage
+
+Gate was added during the 2026-10 hackathon on top of this repository's earlier MCP client. Existing transport, CLI scaffolding, redaction helpers and audit ideas were reused; the [submission disclosure](docs/hackathon/SUBMISSION.md#development-history-paste-into-the-disclosure-field) describes the work and AI assistance. The legacy README below is preserved in full, including its historical evidence and limitations.
+
+---
+
 # solfrontier-cli
 
 A shell client for [Model Context Protocol](https://modelcontextprotocol.io)

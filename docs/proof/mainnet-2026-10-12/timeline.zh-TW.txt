@@ -1,0 +1,11 @@
+audit 雜湊鏈完整：35 筆，最後雜湊 1927f48bed17b11952b38a971a5e0e0f7ac05f7a07658db0b5b8e55f2b54a972
+Jupiter requestId 01a12f34-9039-755e-99b1-81e67671c6bb（建單 17:22:16.377 JST）
+  +0.19 s  本機收到報價
+  +0.79 s  #29 報價檢查通過（最低 0.111463 USDC）
+  +4.13 s  #30 付款簽署已送到 Gate
+  +4.73 s  #31 最後模擬通過
+  +4.74 s  #32 建立 Gate 核准請求（期限 17:22:33.111 JST）
+  +13.97 s  #33 Gate Approver 已核准（wallet-signature）
+  +14.06 s  #34 已寫入送出意圖（候選簽名 55sa9vBAXo1Qh8jYgrqzWf1uZNcGMxyCtM5UVHUcxEEQrJFr7P6zqLFYpA2xort9Ku85Nzt3zL51YW9g2ZmNkDdh；此紀錄不能證明已送出）
+  +14.71 s  #35 Gate 結果：完成，簽名 55sa9vBAXo1Qh8jYgrqzWf1uZNcGMxyCtM5UVHUcxEEQrJFr7P6zqLFYpA2xort9Ku85Nzt3zL51YW9g2ZmNkDdh
+結論：已記錄送出意圖；這一筆紀錄不能證明已呼叫 Jupiter 或上鏈。先用 verify-phantom-mainnet.mjs 查核候選簽名 55sa9vBAXo1Qh8jYgrqzWf1uZNcGMxyCtM5UVHUcxEEQrJFr7P6zqLFYpA2xort9Ku85Nzt3zL51YW9g2ZmNkDdh，不要重送。

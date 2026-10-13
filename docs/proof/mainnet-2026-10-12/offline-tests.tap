@@ -1,0 +1,658 @@
+TAP version 13
+# Subtest: 2026-10-11 records: old build shows no stage, but the 211 ms gap points at the blockhash RPC
+ok 1 - 2026-10-11 records: old build shows no stage, but the 211 ms gap points at the blockhash RPC
+  ---
+  duration_ms: 2.758167
+  type: 'test'
+  ...
+# Subtest: new build names the failing guard, the code and the elapsed time
+ok 2 - new build names the failing guard, the code and the elapsed time
+  ---
+  duration_ms: 0.351042
+  type: 'test'
+  ...
+# Subtest: watchdog expiry before approval is reported with the phase
+ok 3 - watchdog expiry before approval is reported with the phase
+  ---
+  duration_ms: 0.365541
+  type: 'test'
+  ...
+# Subtest: submitted attempt points to on-chain verification, never a resend
+ok 4 - submitted attempt points to on-chain verification, never a resend
+  ---
+  duration_ms: 0.237958
+  type: 'test'
+  ...
+# Subtest: unsigned last quote and empty log are reported plainly
+ok 5 - unsigned last quote and empty log are reported plainly
+  ---
+  duration_ms: 0.146709
+  type: 'test'
+  ...
+# Subtest: a newer unsigned rehearsal quote is the latest attempt and shows its measured window
+ok 6 - a newer unsigned rehearsal quote is the latest attempt and shows its measured window
+  ---
+  duration_ms: 0.478375
+  type: 'test'
+  ...
+# Subtest: unsigned local safety deadline is distinguished from chain expiry
+ok 7 - unsigned local safety deadline is distinguished from chain expiry
+  ---
+  duration_ms: 0.2335
+  type: 'test'
+  ...
+# Subtest: pending hold cancelled by local deadline is named in the timeline
+ok 8 - pending hold cancelled by local deadline is named in the timeline
+  ---
+  duration_ms: 0.356541
+  type: 'test'
+  ...
+# Subtest: late payment is reported without a hold and earlier quote expiry cannot contaminate a replacement
+ok 9 - late payment is reported without a hold and earlier quote expiry cannot contaminate a replacement
+  ---
+  duration_ms: 0.732917
+  type: 'test'
+  ...
+# Subtest: an explicit refusal after an audit intent still identifies the failed final guard
+ok 10 - an explicit refusal after an audit intent still identifies the failed final guard
+  ---
+  duration_ms: 0.578542
+  type: 'test'
+  ...
+# Subtest: Jupiter requestId UUIDv7 gives the order creation time
+ok 11 - Jupiter requestId UUIDv7 gives the order creation time
+  ---
+  duration_ms: 2.248417
+  type: 'test'
+  ...
+# Subtest: measures the blockhash window from receipt with block-height bounds
+ok 12 - measures the blockhash window from receipt with block-height bounds
+  ---
+  duration_ms: 2.843375
+  type: 'test'
+  ...
+# Subtest: a fresh hash is not yet finalized and leaves ~30 s at 200 ms blocks
+ok 13 - a fresh hash is not yet finalized and leaves ~30 s at 200 ms blocks
+  ---
+  duration_ms: 1.976375
+  type: 'test'
+  ...
+# Subtest: summary turns windows into a human budget and a go / no-go verdict
+ok 14 - summary turns windows into a human budget and a go / no-go verdict
+  ---
+  duration_ms: 0.86625
+  type: 'test'
+  ...
+# Subtest: an order for another wallet or amount is refused before any RPC
+ok 15 - an order for another wallet or amount is refused before any RPC
+  ---
+  duration_ms: 0.880375
+  type: 'test'
+  ...
+# Subtest: existing unsigned quote can be refreshed only by an explicit click
+ok 16 - existing unsigned quote can be refreshed only by an explicit click
+  ---
+  duration_ms: 15.4965
+  type: 'test'
+  ...
+# Subtest: local deadline disables signing and tells user to refresh, without autoquote
+ok 17 - local deadline disables signing and tells user to refresh, without autoquote
+  ---
+  duration_ms: 2.798583
+  type: 'test'
+  ...
+# Subtest: invalid expiry also refuses signing
+ok 18 - invalid expiry also refuses signing
+  ---
+  duration_ms: 1.481958
+  type: 'test'
+  ...
+# Subtest: pre-signature quote refusal allows an explicit new quote without retrying automatically
+ok 19 - pre-signature quote refusal allows an explicit new quote without retrying automatically
+  ---
+  duration_ms: 1.925042
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"paused":true}
+ok 20 - paused/pending/result guard survives refresh availability: {"paused":true}
+  ---
+  duration_ms: 1.095041
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"phase":"gate-approval-pending"}
+ok 21 - paused/pending/result guard survives refresh availability: {"phase":"gate-approval-pending"}
+  ---
+  duration_ms: 1.087042
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"phase":"submitting"}
+ok 22 - paused/pending/result guard survives refresh availability: {"phase":"submitting"}
+  ---
+  duration_ms: 1.247167
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"phase":"outcome-unknown"}
+ok 23 - paused/pending/result guard survives refresh availability: {"phase":"outcome-unknown"}
+  ---
+  duration_ms: 1.234417
+  type: 'test'
+  ...
+# Subtest: paused/pending/result guard survives refresh availability: {"phase":"refused","result":{"status":"refused"}}
+ok 24 - paused/pending/result guard survives refresh availability: {"phase":"refused","result":{"status":"refused"}}
+  ---
+  duration_ms: 2.966875
+  type: 'test'
+  ...
+# Subtest: elapsed clock counts from server receipt and flags the chain-confirmed expiry
+ok 25 - elapsed clock counts from server receipt and flags the chain-confirmed expiry
+  ---
+  duration_ms: 2.296791
+  type: 'test'
+  ...
+# Subtest: blockhash refusal is explained in plain words and keeps code and stage
+ok 26 - blockhash refusal is explained in plain words and keeps code and stage
+  ---
+  duration_ms: 1.124208
+  type: 'test'
+  ...
+# Subtest: unknown outcome shows the candidate signature to reconcile, never a retry
+ok 27 - unknown outcome shows the candidate signature to reconcile, never a retry
+  ---
+  duration_ms: 1.095375
+  type: 'test'
+  ...
+# Subtest: both wallet actions share the absolute deadline instead of a new approval clock
+ok 28 - both wallet actions share the absolute deadline instead of a new approval clock
+  ---
+  duration_ms: 1.6265
+  type: 'test'
+  ...
+# Subtest: an approval cutoff before the nominal order expiry prevents a late wallet request
+ok 29 - an approval cutoff before the nominal order expiry prevents a late wallet request
+  ---
+  duration_ms: 1.423958
+  type: 'test'
+  ...
+# Subtest: common deadline refusal names the operation deadline without claiming chain expiry
+ok 30 - common deadline refusal names the operation deadline without claiming chain expiry
+  ---
+  duration_ms: 0.89525
+  type: 'test'
+  ...
+# Subtest: signing handler stops at the profile-specific start deadline 9000
+ok 31 - signing handler stops at the profile-specific start deadline 9000
+  ---
+  duration_ms: 1.711792
+  type: 'test'
+  ...
+# Subtest: signing handler stops at the profile-specific start deadline 5000
+ok 32 - signing handler stops at the profile-specific start deadline 5000
+  ---
+  duration_ms: 2.319084
+  type: 'test'
+  ...
+# Subtest: valid exact-message Phantom signature is verified, and output is public-only
+ok 33 - valid exact-message Phantom signature is verified, and output is public-only
+  ---
+  duration_ms: 5.166209
+  type: 'test'
+  ...
+# Subtest: changed message, invalid signature, wrong signer and noncanonical encoding are refused
+ok 34 - changed message, invalid signature, wrong signer and noncanonical encoding are refused
+  ---
+  duration_ms: 2.578
+  type: 'test'
+  ...
+# Subtest: known valid cosignature is preserved, missing cosigner signature is refused
+ok 35 - known valid cosignature is preserved, missing cosigner signature is refused
+  ---
+  duration_ms: 2.763208
+  type: 'test'
+  ...
+# Subtest: constructor and initially paused quote perform no I/O
+ok 36 - constructor and initially paused quote perform no I/O
+  ---
+  duration_ms: 3.844666
+  type: 'test'
+  ...
+# Subtest: fake order and fake simulation create no submission before generated Gate approval
+ok 37 - fake order and fake simulation create no submission before generated Gate approval
+  ---
+  duration_ms: 19.132959
+  type: 'test'
+  ...
+# Subtest: versioned transaction lookup tables are covered by read-only RPC allowlist
+ok 38 - versioned transaction lookup tables are covered by read-only RPC allowlist
+  ---
+  duration_ms: 6.441084
+  type: 'test'
+  ...
+# Subtest: refused quote keeps its one review as audit evidence without a second simulation
+ok 39 - refused quote keeps its one review as audit evidence without a second simulation
+  ---
+  duration_ms: 2.528834
+  type: 'test'
+  ...
+# Subtest: pre-sign and final Gate review send only unsigned legacy/v0 payloads to fake RPC
+ok 40 - pre-sign and final Gate review send only unsigned legacy/v0 payloads to fake RPC
+  ---
+  duration_ms: 12.364333
+  type: 'test'
+  ...
+# Subtest: all cosigner slots are stripped for simulation while signed execute preserves them
+ok 41 - all cosigner slots are stripped for simulation while signed execute preserves them
+  ---
+  duration_ms: 5.538792
+  type: 'test'
+  ...
+# Subtest: fake quote refuses wrong mainnet genesis
+ok 42 - fake quote refuses wrong mainnet genesis
+  ---
+  duration_ms: 1.095
+  type: 'test'
+  ...
+# Subtest: fake quote refuses wrong input amount
+ok 43 - fake quote refuses wrong input amount
+  ---
+  duration_ms: 1.257959
+  type: 'test'
+  ...
+# Subtest: fake quote refuses wrong taker
+ok 44 - fake quote refuses wrong taker
+  ---
+  duration_ms: 0.697042
+  type: 'test'
+  ...
+# Subtest: fake quote refuses wrong mint
+ok 45 - fake quote refuses wrong mint
+  ---
+  duration_ms: 0.654209
+  type: 'test'
+  ...
+# Subtest: fake quote refuses excess slippage
+ok 46 - fake quote refuses excess slippage
+  ---
+  duration_ms: 0.526959
+  type: 'test'
+  ...
+# Subtest: fake quote refuses misleading threshold
+ok 47 - fake quote refuses misleading threshold
+  ---
+  duration_ms: 0.849625
+  type: 'test'
+  ...
+# Subtest: fake quote refuses threshold above quote
+ok 48 - fake quote refuses threshold above quote
+  ---
+  duration_ms: 0.984791
+  type: 'test'
+  ...
+# Subtest: fake quote refuses missing minimum
+ok 49 - fake quote refuses missing minimum
+  ---
+  duration_ms: 0.776541
+  type: 'test'
+  ...
+# Subtest: fake quote refuses simulation loses USDC
+ok 50 - fake quote refuses simulation loses USDC
+  ---
+  duration_ms: 2.566916
+  type: 'test'
+  ...
+# Subtest: fake quote refuses SOL outflow exceeds cap
+ok 51 - fake quote refuses SOL outflow exceeds cap
+  ---
+  duration_ms: 1.890916
+  type: 'test'
+  ...
+# Subtest: fake quote refuses simulation error
+ok 52 - fake quote refuses simulation error
+  ---
+  duration_ms: 1.385459
+  type: 'test'
+  ...
+# Subtest: fake quote refuses expired blockhash
+ok 53 - fake quote refuses expired blockhash
+  ---
+  duration_ms: 1.171208
+  type: 'test'
+  ...
+# Subtest: fake quote refuses expired order
+ok 54 - fake quote refuses expired order
+  ---
+  duration_ms: 0.685667
+  type: 'test'
+  ...
+# Subtest: quote refuses additional unsigned cosigner, but accepts a known valid cosigner
+ok 55 - quote refuses additional unsigned cosigner, but accepts a known valid cosigner
+  ---
+  duration_ms: 2.464667
+  type: 'test'
+  ...
+# Subtest: final Gate simulation must still meet minimum USDC before fake POST
+ok 56 - final Gate simulation must still meet minimum USDC before fake POST
+  ---
+  duration_ms: 5.973875
+  type: 'test'
+  ...
+# Subtest: user rejection and pause cancel holds without executing
+ok 57 - user rejection and pause cancel holds without executing
+  ---
+  duration_ms: 6.852042
+  type: 'test'
+  ...
+# Subtest: caller cancellation aborts pending approval without a fake POST
+ok 58 - caller cancellation aborts pending approval without a fake POST
+  ---
+  duration_ms: 3.4735
+  type: 'test'
+  ...
+# Subtest: final blockhash expiry refuses fake POST even after generated approval
+ok 59 - final blockhash expiry refuses fake POST even after generated approval
+  ---
+  duration_ms: 3.5675
+  type: 'test'
+  ...
+# Subtest: unknown pre-execution exception uses only generic diagnostic code and no raw error
+ok 60 - unknown pre-execution exception uses only generic diagnostic code and no raw error
+  ---
+  duration_ms: 3.396333
+  type: 'test'
+  ...
+# Subtest: fake POST timeout retains candidate signature and forbids retry
+ok 61 - fake POST timeout retains candidate signature and forbids retry
+  ---
+  duration_ms: 4.012875
+  type: 'test'
+  ...
+# Subtest: fake POST mismatch retains candidate signature and forbids retry
+ok 62 - fake POST mismatch retains candidate signature and forbids retry
+  ---
+  duration_ms: 3.268791
+  type: 'test'
+  ...
+# Subtest: fake POST Failed retains candidate signature and forbids retry
+ok 63 - fake POST Failed retains candidate signature and forbids retry
+  ---
+  duration_ms: 3.469042
+  type: 'test'
+  ...
+# Subtest: signed transaction echoed by fake RPC is removed from audit and public state
+ok 64 - signed transaction echoed by fake RPC is removed from audit and public state
+  ---
+  duration_ms: 3.268875
+  type: 'test'
+  ...
+# Subtest: expired reviewed order cannot be signed and never reaches Gate or transport
+ok 65 - expired reviewed order cannot be signed and never reaches Gate or transport
+  ---
+  duration_ms: 1.329917
+  type: 'test'
+  ...
+# Subtest: pause during an in-flight scripted RPC prevents the next RPC and order
+ok 66 - pause during an in-flight scripted RPC prevents the next RPC and order
+  ---
+  duration_ms: 0.675791
+  type: 'test'
+  ...
+# Subtest: refusal record names the guard, elapsed time and chain answer (2026-10-11 replay)
+ok 67 - refusal record names the guard, elapsed time and chain answer (2026-10-11 replay)
+  ---
+  duration_ms: 3.835042
+  type: 'test'
+  ...
+# Subtest: final RPC failure is recorded as rpc_unavailable, distinct from an expired blockhash
+ok 68 - final RPC failure is recorded as rpc_unavailable, distinct from an expired blockhash
+  ---
+  duration_ms: 3.06375
+  type: 'test'
+  ...
+# Subtest: blockhash watchdog cancels the pending Gate hold once the chain says the blockhash is gone
+ok 69 - blockhash watchdog cancels the pending Gate hold once the chain says the blockhash is gone
+  ---
+  duration_ms: 39.374
+  type: 'test'
+  ...
+# Subtest: blockhash watchdog expires an unsigned order before Phantom is asked to sign
+ok 70 - blockhash watchdog expires an unsigned order before Phantom is asked to sign
+  ---
+  duration_ms: 9.367584
+  type: 'test'
+  ...
+# Subtest: blockhash watchdog ignores RPC trouble; only an explicit false expires the order
+ok 71 - blockhash watchdog ignores RPC trouble; only an explicit false expires the order
+  ---
+  duration_ms: 49.355
+  type: 'test'
+  ...
+# Subtest: pause stops the blockhash watchdog and resume restarts it for the unsigned order
+ok 72 - pause stops the blockhash watchdog and resume restarts it for the unsigned order
+  ---
+  duration_ms: 50.074292
+  type: 'test'
+  ...
+# Subtest: a hold opened after the watchdog saw the hash die is cancelled at birth
+ok 73 - a hold opened after the watchdog saw the hash die is cancelled at birth
+  ---
+  duration_ms: 7.514
+  type: 'test'
+  ...
+# Subtest: late payment is rejected before any Gate hold at 12000 ms
+ok 74 - late payment is rejected before any Gate hold at 12000 ms
+  ---
+  duration_ms: 2.262375
+  type: 'test'
+  ...
+# Subtest: payment exactly at the configured arrival threshold is accepted at 12000 ms
+ok 75 - payment exactly at the configured arrival threshold is accepted at 12000 ms
+  ---
+  duration_ms: 2.456875
+  type: 'test'
+  ...
+# Subtest: late payment is rejected before any Gate hold at 8000 ms
+ok 76 - late payment is rejected before any Gate hold at 8000 ms
+  ---
+  duration_ms: 1.987917
+  type: 'test'
+  ...
+# Subtest: payment exactly at the configured arrival threshold is accepted at 8000 ms
+ok 77 - payment exactly at the configured arrival threshold is accepted at 8000 ms
+  ---
+  duration_ms: 2.289209
+  type: 'test'
+  ...
+# Subtest: payment does not restart the absolute deadline and stalled RPC cannot keep approval open
+ok 78 - payment does not restart the absolute deadline and stalled RPC cannot keep approval open
+  ---
+  duration_ms: 7.99175
+  type: 'test'
+  ...
+# Subtest: synchronous audit time cannot consume the send reserve and still trigger POST
+ok 79 - synchronous audit time cannot consume the send reserve and still trigger POST
+  ---
+  duration_ms: 3.331334
+  type: 'test'
+  ...
+# Subtest: pause never extends a deadline and old timer callbacks cannot expire a replacement
+ok 80 - pause never extends a deadline and old timer callbacks cannot expire a replacement
+  ---
+  duration_ms: 2.067542
+  type: 'test'
+  ...
+# Subtest: local browser library preserves generated legacy and v0 transaction bytes
+ok 81 - local browser library preserves generated legacy and v0 transaction bytes
+  ---
+  duration_ms: 26.908625
+  type: 'test'
+  ...
+# Subtest: public-only configuration starts paused without a wallet injection
+ok 82 - public-only configuration starts paused without a wallet injection
+  ---
+  duration_ms: 3.049875
+  type: 'test'
+  ...
+# Subtest: loopback API enforces session, Host, Origin and fixed request shape
+ok 83 - loopback API enforces session, Host, Origin and fixed request shape
+  ---
+  duration_ms: 34.384334
+  type: 'test'
+  ...
+# Subtest: production approval maximum leaves a relay reserve inside the measured short order window
+ok 84 - production approval maximum leaves a relay reserve inside the measured short order window
+  ---
+  duration_ms: 1.184417
+  type: 'test'
+  ...
+# Subtest: two profiles and same Phantom select their fixed early payment budgets
+ok 85 - two profiles and same Phantom select their fixed early payment budgets
+  ---
+  duration_ms: 0.269958
+  type: 'test'
+  ...
+# Subtest: complete finalized proof binds approval, order minimum, ledger and owner balances
+ok 86 - complete finalized proof binds approval, order minimum, ledger and owner balances
+  ---
+  duration_ms: 13.952541
+  type: 'test'
+  ...
+# Subtest: new USDC account has zero prior balance and loaded index maps correctly
+ok 87 - new USDC account has zero prior balance and loaded index maps correctly
+  ---
+  duration_ms: 1.663042
+  type: 'test'
+  ...
+# Subtest: sums all owned USDC accounts while ignoring another owner
+ok 88 - sums all owned USDC accounts while ignoring another owner
+  ---
+  duration_ms: 1.727
+  type: 'test'
+  ...
+# Subtest: owner authority changes contribute negative owned balance
+ok 89 - owner authority changes contribute negative owned balance
+  ---
+  duration_ms: 1.126
+  type: 'test'
+  ...
+# Subtest: closed WSOL account contributes full prior token balance
+ok 90 - closed WSOL account contributes full prior token balance
+  ---
+  duration_ms: 1.020959
+  type: 'test'
+  ...
+# Subtest: cap includes spent WSOL and fee is not counted twice
+ok 91 - cap includes spent WSOL and fee is not counted twice
+  ---
+  duration_ms: 3.413667
+  type: 'test'
+  ...
+# Subtest: received USDC below exact approved minimum fails
+ok 92 - received USDC below exact approved minimum fails
+  ---
+  duration_ms: 1.405791
+  type: 'test'
+  ...
+# Subtest: nonfinalized status does not fetch transaction or retry
+ok 93 - nonfinalized status does not fetch transaction or retry
+  ---
+  duration_ms: 0.982458
+  type: 'test'
+  ...
+# Subtest: null finalized transaction is not treated as a success
+ok 94 - null finalized transaction is not treated as a success
+  ---
+  duration_ms: 1.191
+  type: 'test'
+  ...
+# Subtest: wrong RPC network stops before status lookup
+ok 95 - wrong RPC network stops before status lookup
+  ---
+  duration_ms: 1.841542
+  type: 'test'
+  ...
+# Subtest: failed finalized status is never called successful
+ok 96 - failed finalized status is never called successful
+  ---
+  duration_ms: 1.003
+  type: 'test'
+  ...
+# Subtest: slot mismatch fails independently from matching message
+ok 97 - slot mismatch fails independently from matching message
+  ---
+  duration_ms: 1.256958
+  type: 'test'
+  ...
+# Subtest: valid but different signed ledger transaction cannot replace candidate
+ok 98 - valid but different signed ledger transaction cannot replace candidate
+  ---
+  duration_ms: 1.568542
+  type: 'test'
+  ...
+# Subtest: ledger signatures cannot be corrupted
+ok 99 - ledger signatures cannot be corrupted
+  ---
+  duration_ms: 0.914917
+  type: 'test'
+  ...
+# Subtest: execute attempt alone cannot pass audit transaction verification
+ok 100 - execute attempt alone cannot pass audit transaction verification
+  ---
+  duration_ms: 0.575292
+  type: 'test'
+  ...
+# Subtest: extra transaction claim cannot silently pass strict candidate audit
+ok 101 - extra transaction claim cannot silently pass strict candidate audit
+  ---
+  duration_ms: 0.993834
+  type: 'test'
+  ...
+# Subtest: minimum bound must share request and exact message
+ok 102 - minimum bound must share request and exact message
+  ---
+  duration_ms: 0.593666
+  type: 'test'
+  ...
+# Subtest: recorded approver signature is independently checked
+ok 103 - recorded approver signature is independently checked
+  ---
+  duration_ms: 1.088333
+  type: 'test'
+  ...
+# Subtest: broken audit hash chain stops before network
+ok 104 - broken audit hash chain stops before network
+  ---
+  duration_ms: 0.579083
+  type: 'test'
+  ...
+# Subtest: missing owner, duplicate indexes, and token decimals fail closed
+ok 105 - missing owner, duplicate indexes, and token decimals fail closed
+  ---
+  duration_ms: 1.346375
+  type: 'test'
+  ...
+# Subtest: incomplete loaded addresses and unsafe lamports fail closed
+ok 106 - incomplete loaded addresses and unsafe lamports fail closed
+  ---
+  duration_ms: 0.811916
+  type: 'test'
+  ...
+# Subtest: RPC error messages containing credentials never leave public result
+ok 107 - RPC error messages containing credentials never leave public result
+  ---
+  duration_ms: 0.883
+  type: 'test'
+  ...
+# Subtest: public signature input rejects malformed strings without echoing input
+ok 108 - public signature input rejects malformed strings without echoing input
+  ---
+  duration_ms: 0.069042
+  type: 'test'
+  ...
+1..108
+# tests 108
+# suites 0
+# pass 108
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 486.074875
